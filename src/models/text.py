@@ -8,4 +8,6 @@ class TransformerTextEncoder(nn.Module):
         pass
 
 class TransformerTextDecoder(nn.Module):
+    # Rebrà: Token de l'image encoder (imatge per fer captioning
+        # Tokens de contexte extrets amb un context encoder
     pass

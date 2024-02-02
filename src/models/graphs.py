@@ -4,8 +4,7 @@ from torch_geometric.nn import GATConv
 
 class GraphContextGAT(nn.Module):
     def __init__(self, image_processor: nn.Module, image_embedding_size: int,
-                 text_processor: nn.Module, text_embedding_size: int, feature_size: int,
-                 edge_embedding: nn.Module, node_embedding: nn.Module, node_category_embedding: nn.Module,
+                 text_processor: nn.Module, text_embedding_size: int, feature_size: int, graph_embedding: nn.Module,
                  depth: int, heads: int, in_channels: int, hidden_channels: int, out_channels: int,
                  dropout: float = .1,
                  device: str='cuda'):
@@ -21,9 +20,9 @@ class GraphContextGAT(nn.Module):
         # quan incorporem el link prediction
         self.image_projection = nn.Linear(image_embedding_size, feature_size)
 
-        self.edges_emb = edge_embedding # has to return feature_size features
-        self.nodes_emb = node_embedding
-        self.node_category_embedding = node_category_embedding
+        self.graph_elements_embedding = graph_embedding # This will contain all the embeddings,
+        # the batch already gives you what is what, so all goes through this
+        # i.e. from 0-X nodes, x-Y categories... etc
         # A node embedding will be CONCAT([node_features], [category_features]) with small category features
         # Therefore the feature_size = |node_features|+|category_features|
 

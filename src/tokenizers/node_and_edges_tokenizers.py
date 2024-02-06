@@ -2,7 +2,7 @@ import networkx as nx
 import json
 import os
 
-from src.data.data_defaults import EMBEDDING_NODE_CATEGORIES, GRAPH_TOKENIZER_DEFAULT_PATH, MYSELF_TAG
+from src.data.data_defaults import EMBEDDING_NODE_CATEGORIES, GRAPH_TOKENIZER_DEFAULT_PATH, MYSELF_TAG, PADDING_TAG
 
 class GraphTokenizer:
     def __init__(self, graph_path: str, valid_node_categories=EMBEDDING_NODE_CATEGORIES,
@@ -10,15 +10,21 @@ class GraphTokenizer:
 
         if os.path.exists(checkpoint):
             self.token_dict = json.load(open(checkpoint, 'r'))
+
+            self.padding_idx = len(self.token_dict)
+            self.token_dict[PADDING_TAG] = self.padding_idx
             return
 
-        self.graph = nx.read_gexf(graph)
+        self.graph = nx.read_gexf(graph_path)
         self.valid_node_categories = valid_node_categories
         self.token_dict = {}
 
         # Build the token dictionary
         self.build_token_dict()
         json.dump(self.token_dict, open(checkpoint, 'w'))
+
+        self.padding_idx = len(self.token_dict)
+        self.token_dict[PADDING_TAG] = self.padding_idx
 
     def build_token_dict(self):
         # Tokenize every single node category
@@ -35,8 +41,11 @@ class GraphTokenizer:
         self.token_dict[MYSELF_TAG] = len(self.token_dict)
         # Tokenize every single edge type
         edge_types = set(edge_data['edge_type'] for _, _, edge_data in self.graph.edges(data=True))
-        self.token_dict.update({edge_type: len(self.token_dict) for edge_type in edge_types})
+        self.token_dict.update({edge_type: len(self.token_dict) + num for num, edge_type in enumerate(edge_types)})
 
     def get_token_dict(self):
         return self.token_dict
 
+        graph_data = self.forward_graph_data(batch)
+        graph_embedding = self.graph_convs_gat(x=graph_data['node_features'], edge_index=graph_data['edge_idxs'],
+                                               edge_attr=graph_data['edge_features'])

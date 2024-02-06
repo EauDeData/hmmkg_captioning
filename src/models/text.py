@@ -1,6 +1,16 @@
 import torch.nn as nn
-class CLIPTextEncoder:
-    pass
+import open_clip
+
+from src.data.data_defaults import CLIP_MODEL_TAG
+class CLIPTextEncoder(nn.Module):
+    def __init__(self, clip_model_tag = CLIP_MODEL_TAG):
+        super(CLIPTextEncoder, self).__init__()
+
+        model, _, preprocess = open_clip.create_model_and_transforms(clip_model_tag, pretrained='laion2b_s34b_b79k')
+        self.model = model
+
+    def forward(self, batch):
+        return self.model.encode_text(batch)
 
 class TransformerTextEncoder(nn.Module):
     def __init__(self, text_embedding):

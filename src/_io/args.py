@@ -14,7 +14,7 @@ import argparse
 import resource
 
 rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
-resource.setrlimit(resource.RLIMIT_NOFILE, (8184, rlimit[1]))
+resource.setrlimit(resource.RLIMIT_NOFILE, (32000, rlimit[1]))
 
 def assert_preconditions(args):
     if args.text_encoder == 'CLIP':
@@ -28,9 +28,9 @@ def parse_arguments():
 
     parser.add_argument('--device', type=str, default='cuda')
     parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--num_workers', type=int, default=12)
+    parser.add_argument('--num_workers', type=int, default=24)
     parser.add_argument('--lr', type=float, default=5e-4)
-    parser.add_argument('--epoches', type=int, default=15)
+    parser.add_argument('--epoches', type=int, default=100)
     parser.add_argument('--log_wandb', action='store_true')
 
     parser.add_argument('--random_walk_len', type=int, default=12)

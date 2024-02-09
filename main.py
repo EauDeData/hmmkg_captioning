@@ -15,6 +15,8 @@ from torch.utils.data import DataLoader
 import torch
 import torchvision
 
+torch.manual_seed(42)
+
 def get_graph_embedding(args):
     graph_tokenizer, text_tokenizer = get_tokenizers(args)
     return graph_tokenizer, text_tokenizer, torch.nn.Embedding(len(graph_tokenizer.token_dict),
@@ -94,13 +96,16 @@ def main(args):
     else: logger = None
 
     personal_best = 0
+    loss_function = torch.nn.CrossEntropyLoss(ignore_index=0)
     for epoch in range(args.epoches):
 
         print(f"-----Training Epoch {epoch}--------")
-        train_loss = cross_entropy_train_loop(train_loader, optimizer, model, logger=logger)
+        train_loss = cross_entropy_train_loop(train_loader, optimizer, model, logger=logger, epoch=epoch,
+                                              loss_function=loss_function)
         print(f"(Script) Trained epoch {epoch} with loss {train_loss}")
 
-        test_metrics = eval(test_loader, model, text_tokenizer, logger=logger)
+        test_metrics = eval(test_loader, model, text_tokenizer, logger=logger,
+                            loss_function=loss_function)
         print(f"(Script) Tested epoch {epoch} with metrics {test_metrics}")
         if personal_best <= test_metrics['avg_rouge'] and args.save_checkpoint_to:
             torch.save(model.state_dict(), args.save_checkpoint_to)

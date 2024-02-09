@@ -1,6 +1,6 @@
 import torch
 from tqdm import tqdm
-def cross_entropy_train_loop(dataloader, optimizer, model, loss_function = torch.nn.CrossEntropyLoss(), logger = None):
+def cross_entropy_train_loop(dataloader, optimizer, model, loss_function = torch.nn.CrossEntropyLoss(), logger = None, epoch=0):
 
     model.train()
     losses = []
@@ -12,11 +12,16 @@ def cross_entropy_train_loop(dataloader, optimizer, model, loss_function = torch
         loss = loss_function(ouput_flattened, labels)
         loss.backward()
         optimizer.step()
-        losses.append(loss.item)
+        losses.append(loss.item())
+        if logger:
+            logger.log(
+                {'batch_loss': loss.item(),
+                'epoch': epoch}
+            )
+
     avg_loss = sum(losses) / len(losses)
     if logger:
         logger.log({
-            'batch_loss': losses,
             'epoch_loss': avg_loss
         })
     return avg_loss

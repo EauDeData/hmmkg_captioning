@@ -46,13 +46,12 @@ class GraphContextGAT(nn.Module):
         self.activation = nn.LeakyReLU()
 
         self.to(device)
-        self.freeze_encoder = freeze_encoder
+        if freeze_encoder:
+            for param in self.text_processor.parameters():
+                param.requires_grad = False
 
-    def train(self):
-        super(GraphContextGAT, self).train(mode=True)
-        if self.freeze_encoder:
-            self.image_processor.train(mode=False)
-            self.text_processor.train(mode=False)
+            for param in self.image_processor.parameters():
+                param.requires_grad = False
 
     def forward_graph_data(self, data):
 

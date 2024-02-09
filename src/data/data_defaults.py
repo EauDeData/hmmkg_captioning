@@ -13,7 +13,7 @@ DATASET_SAVE_PATH_FSTRING = '/data/users/amolina/hmmkg/{}_dataset_checkpoint.pkl
 NON_ADMITED_FILE_FORMATS = ['djvu', 'flac', 'gz', 'mp3', 'oga', 'ogg', 'ogv', 'webm']
 
 CLIP_MODEL_TAG = 'ViT-B-32'
-DEFAULT_TEXT_TOKENIZER_CONTEXT_LENGTH = 100
+DEFAULT_TEXT_TOKENIZER_CONTEXT_LENGTH = 77
 
 GRAPH_TOKENIZER_DEFAULT_PATH = '/data/users/amolina/hmmkg/graph_tokenizer.json'
 

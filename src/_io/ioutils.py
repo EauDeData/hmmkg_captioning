@@ -12,11 +12,12 @@ defusedxml.common._apply_defusing = lambda x: x
 
 def read_svg_with_pillow(svg_path):
     # Convert SVG to PNG using cairosvg
-    svg_content = open(svg_path, 'rb').read()
-    png_data = cairosvg.svg2png(file_obj=BytesIO(svg_content))
+    with open(svg_path, 'rb') as file:
+        svg_content = file.read()
+        png_data = cairosvg.svg2png(file_obj=BytesIO(svg_content))
 
-    # Read PNG data with Pillow
-    pil_image = Image.open(BytesIO(png_data))
+        # Read PNG data with Pillow
+        pil_image = Image.open(BytesIO(png_data))
 
     return pil_image
 
@@ -35,6 +36,8 @@ def read_image_any_format(path):
 
     elif file_extension in ['.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp', '.tif']:
         # Read the image using PIL directly
+        if file_extension in ['.tiff', '.tif'] and os.path.exists(path.replace(file_extension, '.png')):
+            path = path.replace(file_extension, '.png')
         pil_image = Image.open(path)
 
     elif file_extension == '.svg':

@@ -51,7 +51,7 @@ class CaptioningDataset(Dataset):
                 zip(
                     *[self.images[column] for column in ['image_node_title', 'subpath', 'missing', 'train', 'url']]
                     )
-        ), total=len(self.images)):
+        ), total=len(self.images), desc=f"Getting {split} dataset ready for you!"):
 
             item = {
                 'node_id': node_id,

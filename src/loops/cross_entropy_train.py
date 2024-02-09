@@ -1,11 +1,22 @@
 import torch
 from tqdm import tqdm
-def cross_entropy_train_loop(dataloader, optimizer, model, loss = torch.nn.CrossEntropyLoss()):
+def cross_entropy_train_loop(dataloader, optimizer, model, loss_function = torch.nn.CrossEntropyLoss(), logger = None):
 
     model.train()
+    losses = []
     for batch in tqdm(dataloader):
-        output = model(batch)['language_head_output']
-        labels = batch['captions']
-
-        print(labels.shape, output.shape)
-        exit()
+        optimizer.zero_grad()
+        output = model(batch)['language_head_output'].transpose(1, 0)
+        ouput_flattened = output.reshape(-1, output.shape[-1])
+        labels = batch['captions'].view(-1).to(output.device)
+        loss = loss_function(ouput_flattened, labels)
+        loss.backward()
+        optimizer.step()
+        losses.append(loss.item)
+    avg_loss = sum(losses) / len(losses)
+    if logger:
+        logger.log({
+            'batch_loss': losses,
+            'epoch_loss': avg_loss
+        })
+    return avg_loss

@@ -18,6 +18,9 @@ class CLIPOriginalTokenizer:
 
         self.sentence_len = context_length
 
+    def __len__(self):
+        return self.tokenizer.vocab_size
+
     def tokenize(self, sentences: list):
         return self.tokenizer(sentences, context_length=self.sentence_len) # TODO: Context length should be a parameter
     def decode(self, single_sentence: List[int]):

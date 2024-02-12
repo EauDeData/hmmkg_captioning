@@ -4,7 +4,7 @@ from src.tokenizers.tokenizers import CLIPOriginalTokenizer
 from src.tokenizers.node_and_edges_tokenizers import GraphTokenizer
 from src.data.data_defaults import IMAGENET_MEANS, IMAGENET_STDS
 from src.models.graphs import GraphContextGAT
-from src.models.text import CLIPTextEncoder, TransformerDecoder
+from src.models.text import CLIPTextEncoder, TransformerDecoder, LSTMDecoderWithAttention
 from src.models.vision import CLIPVisionEncoder
 from src.loops.cross_entropy_train import cross_entropy_train_loop
 from src.loops.eval import eval
@@ -41,10 +41,19 @@ def prepare_models(args):
                                       args.gat_feature_size, graph_embedding, args.gat_depth, args.gat_width,
                                       args.gat_in_channels, args.gat_hidden_channels, device=args.device,
                                       freeze_encoder=args.train_backbones)
-    decoder = TransformerDecoder(graph_processor, args.gat_feature_size, textual_model.model.token_embedding,
-                                 args.decoder_emb_size, args.decoder_depth, len(text_tokenizer), args.decoder_width,
-                                 args.text_context_size, text_tokenizer.eos_token_id, args.train_backbones)
+    if args.decoder_architecture == 'tr':
+        decoder = TransformerDecoder(graph_processor, args.gat_feature_size, textual_model.model.token_embedding,
+                                     args.decoder_emb_size, args.decoder_depth, len(text_tokenizer), args.decoder_width,
+                                     args.text_context_size, text_tokenizer.eos_token_id, text_tokenizer.bos_token_id,
+                                     args.train_backbones)
+    elif args.decoder_architecture == 'lstm':
+        decoder = LSTMDecoderWithAttention(graph_processor, args.gat_feature_size, textual_model.model.token_embedding,
+                                           args.decoder_emb_size, len(text_tokenizer),
+                                           start_token_id=text_tokenizer.bos_token_id,
+                                           max_tokens_during_train=args.text_context_size)
 
+    else:
+        raise NotImplementedError(f"{args.decoder_architecture} is not an implemented decoder.")
     if args.load_global_checkpoint:
 
         decoder.load_state_dict(torch.load(args.load_global_checkpoint))

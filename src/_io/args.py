@@ -64,6 +64,7 @@ def parse_arguments():
     parser.add_argument('--gat_hidden_channels', type=int, default=128)
     parser.add_argument('--train_backbones', action='store_true')
 
+    parser.add_argument('--decoder_architecture', type=str, default='tr', choices=['tr', 'lstm'])
     parser.add_argument('--decoder_emb_size', type=int, default=512)
     parser.add_argument('--decoder_depth', type=int, default=1)
     parser.add_argument('--decoder_width', type=int, default=8)

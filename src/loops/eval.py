@@ -26,7 +26,8 @@ def eval(dataloader, model, tokenizer, loss_function = torch.nn.CrossEntropyLoss
             avg_rouge += rouge_score(decoded_prediction, decoded_labels)['rouge1_fmeasure'].item()
             avg_bleu += bleu_scorer(decoded_prediction, [[x] for x in decoded_labels]).item()
 
-    print('\n'.join([f'Predicted \ actual:\n\t{x}, | {y}' for x,y in zip(decoded_prediction, decoded_labels)]))
+    print('\n'.join([f'Predicted \ actual:\n\t{x.replace("!", "")}, | {y}' for x,y in zip(decoded_prediction,
+                                                                         decoded_labels)]))
 
     res_dict = {
         'avg_loss': avg_loss/(num + 1),

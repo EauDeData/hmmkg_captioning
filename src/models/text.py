@@ -5,7 +5,8 @@ import open_clip
 import math
 import copy
 from src.data.data_defaults import CLIP_MODEL_TAG
-
+from src.models.attentions import ScaledDotProductAttention
+import torch.nn.functional as F
 class PositionalEncoding(nn.Module):
 
     def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
@@ -42,10 +43,11 @@ class TransformerTextEncoder(nn.Module):
         # Per ser consistents, hem de tokenitzar fora i fer els embeddings al forward
         pass
 
+# TODO: Get ANY decoder to be able to overfit, lmao
 class TransformerDecoder(nn.Module):
     def __init__(self, encoder, encoder_input_size, text_embedding, decoder_token_size, decoder_depth, vocab_size,
                  decoder_width,
-                 max_tokens_during_train=100, stop_token = 0, train_text_emb=False):
+                 max_tokens_during_train=100, stop_token = 0, start_token_id=0, train_text_emb=False):
         super(TransformerDecoder, self).__init__()
 
         self.encoder = encoder
@@ -58,7 +60,7 @@ class TransformerDecoder(nn.Module):
 
         self.lm_head = torch.nn.Linear(decoder_token_size, vocab_size)
 
-        self.cls_token = torch.nn.Parameter(torch.rand(1, decoder_token_size))
+        self.cls_token = torch.zeros(1, decoder_token_size, device=encoder.device)
 
         self.pos_emb = PositionalEncoding(decoder_token_size, dropout=0, max_len=max_tokens_during_train)
         self.max_tokens_decode = max_tokens_during_train
@@ -66,7 +68,7 @@ class TransformerDecoder(nn.Module):
         self.d_size = decoder_token_size
         self.stop_token_id = stop_token
 
-        self.embedding = copy.deepcopy(text_embedding.cpu())
+        self.embedding = text_embedding.cpu()
 
         if not train_text_emb:
             for param in self.embedding.parameters():
@@ -74,7 +76,7 @@ class TransformerDecoder(nn.Module):
 
         self.to(self.encoder.device)
 
-    def forward(self, X):
+    def auto_forward(self, X):
 
         encoder_output = self.encoder(X)['features']  # Pass the batch X through the encoder
         memory = self.memory(encoder_output).transpose(1,0)
@@ -88,14 +90,117 @@ class TransformerDecoder(nn.Module):
                 tgt=target_sequence,
                 memory=memory))
 
-            lang_head_output = self.lm_head(decoded)[-1, :, :]
+            lang_head_output = self.lm_head(decoded[-1, :, :])
+            #print('shape of tgt seq:', lang_head_output.shape)
+            #input()
 
             most_likely_tokens = self.embedding(torch.argmax(lang_head_output, 1)).detach() # TODO: Observar\
             # si això és un perill
-            sequence[sequence_id, :, :] = most_likely_tokens.unsqueeze(0)
+            sequence[sequence_id - 1, :, :] = most_likely_tokens.unsqueeze(0)
 
         return {
             'features': memory,
             'language_head_output': self.lm_head(sequence[1:]), # El token 0 és el CLS
             'hidden_states': sequence[1:]
         }
+
+    def forward(self, X):
+
+        encoder_output = self.encoder(X)['features']  # Pass the batch X through the encoder
+        memory = self.memory(encoder_output).transpose(1,0)
+        sequence = torch.zeros((self.max_tokens_decode, memory.shape[1], self.d_size), device=self.encoder.device)
+        # sequence[0, :, :] = self.cls_token
+
+        positional_sequence = self.pos_emb(sequence)
+        tgt_mask = nn.Transformer.generate_square_subsequent_mask(positional_sequence.size(0))\
+            .to(positional_sequence.device)
+
+        decoded = self.gelu_fn(self.decoder(
+            tgt=positional_sequence,
+            memory=memory,
+            tgt_mask=tgt_mask
+        ))
+
+        # Project the decoder output to vocabulary space
+        output = self.lm_head(decoded)
+
+        return {
+            'features': memory,
+            'language_head_output': output,
+            'hidden_states': None
+        }
+
+
+def scaled_dot_product_attention(query, key, value):
+    # Compute dot product between query and key
+
+    dot_product = torch.matmul(query, key.transpose(2, 1))
+
+    # Scale the dot product
+    scaled_dot_product = dot_product / torch.sqrt(torch.tensor(query.size(-1), dtype=torch.float32))
+
+    # Apply softmax to get attention weights
+    attention_weights = F.softmax(scaled_dot_product, dim=-1)
+
+    # Multiply attention weights by values
+    attention_output = torch.matmul(attention_weights.transpose(2, 1), value)
+
+    return attention_output, attention_weights
+
+class LSTMDecoderWithAttention(nn.Module):
+    def __init__(self, encoder, encoder_input_size, text_embedding, decoder_token_size, vocab_size,
+                 start_token_id=0, max_tokens_during_train=100):
+        super(LSTMDecoderWithAttention, self).__init__()
+
+        self.encoder = encoder
+        self.decoder_token_size = decoder_token_size
+
+        self.bos_token = text_embedding(torch.tensor([start_token_id], device=encoder.device))
+        self.max_tokens = max_tokens_during_train
+
+        self.features_attn_head = nn.Sequential(nn.ReLU(), nn.Linear(encoder_input_size, decoder_token_size))
+        self.text_features_attn_head = nn.Sequential(nn.ReLU(), nn.Linear(decoder_token_size, decoder_token_size))
+        self.features_values = nn.Sequential(nn.ReLU(), nn.Linear(encoder_input_size, decoder_token_size))
+
+        self.lm_head = nn.Linear(decoder_token_size, vocab_size)
+
+        self.vocab_size = vocab_size
+        self.start_token_id = start_token_id
+
+        self.lstm_cell = torch.nn.LSTMCell(decoder_token_size, decoder_token_size)
+        self.attention_layer = scaled_dot_product_attention
+
+
+        self.to(encoder.device)
+
+    def forward(self, batch):
+
+        features = self.encoder(batch)['features']
+
+        context_key = self.features_attn_head(features)
+        context_values = self.features_values(features)
+
+        output_seq = torch.zeros((self.max_tokens, features.shape[0], self.vocab_size),
+                                device=self.encoder.device)
+
+        output_seq[0, :, self.start_token_id] = 1
+
+        hidden_state = torch.stack([self.bos_token.squeeze().clone().detach()] * features.shape[0])
+
+        sequence_ctx = torch.zeros(features.shape[0], self.decoder_token_size, device=self.encoder.device)
+
+
+        for seq_idx in range(1, self.max_tokens):
+
+            input_values = hidden_state.detach().clone()
+            input_seq_keys = self.text_features_attn_head(input_values)[:, None, :]
+
+            context, attn = self.attention_layer(context_key, input_seq_keys, context_values) # This gives us
+            # context depending on the sequence time
+
+            hidden_state, sequence_ctx = self.lstm_cell(context[:, 0, :], (hidden_state, sequence_ctx))
+            output_seq[seq_idx] = self.lm_head(hidden_state)
+
+        return {'language_head_output': output_seq}
+
+

@@ -207,6 +207,8 @@ class GraphContextTransformerEncoder(nn.Module):
         # IMPORTANT!! IMAGE NODE MUST BE THE LAST ONE OF THE SEQUENCE TO MATCH THE MASK
         full_sequence = (torch.cat((projected_node_tokens, projected_image_token), dim = 0).\
                          transpose(1, 0))
+
+        print(X['adj_matrix'].shape, full_sequence.shape)
         encoded_features = self.transformer_encoder(full_sequence, mask=X['adj_matrix'].to(self.device))
         print(encoded_features.shape)
         exit()

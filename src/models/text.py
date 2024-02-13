@@ -46,7 +46,8 @@ class TransformerTextEncoder(nn.Module):
 class TransformerDecoder(nn.Module):
     def __init__(self, encoder, encoder_input_size, text_embedding, decoder_token_size, decoder_depth, vocab_size,
                  decoder_width,
-                 max_tokens_during_train=100, stop_token = 0, start_token_id=0, train_text_emb=False):
+                 max_tokens_during_train=100, stop_token = 0, start_token_id=0, train_text_emb=False,
+                 auto_recurrent=False):
         super(TransformerDecoder, self).__init__()
 
         self.encoder = encoder
@@ -73,29 +74,30 @@ class TransformerDecoder(nn.Module):
 
         self.embedding = text_embedding.cpu()
 
-        if not train_text_emb:
+        if train_text_emb: # Actually it is if freeze, im stupid
             for param in self.embedding.parameters():
                 param.requires_grad = False
 
         self.to(self.encoder.device)
-    def _forward(self, X):
+
+        self.forward = self.autorrecurrent_forward if auto_recurrent else self.non_autorecurrent_forward
+
+    def non_autorecurrent_forward(self, X):
 
         encoder_output = self.encoder(X)['features']  # Pass the batch X through the encoder
         memory = self.memory(encoder_output).transpose(1,0)
-        #sequence = torch.zeros((self.max_tokens_decode, memory.shape[1], self.d_size), device=self.encoder.device)
-        # sequence[0, :, :] = self.cls_token
+        sequence = torch.zeros((self.max_tokens_decode, memory.shape[1], self.d_size), device=self.encoder.device)
+        sequence[0, :, :] = self.cls_token
 
-        positional_sequence = self.pos_emb(torch.zeros((memory.shape[1], 1), device=memory.device)).\
-            reshape(memory.shape[1], self.max_tokens_decode, self.d_size)\
-            .transpose(1, 0)
-        #tgt_mask = nn.Transformer.generate_square_subsequent_mask(positional_sequence.size(0))\
-        #    .to(positional_sequence.device)
+        positional_sequence = self.pos_emb(sequence)
+        tgt_mask = nn.Transformer.generate_square_subsequent_mask(positional_sequence.size(0)).to(
+            positional_sequence.device
+        )
 
         decoded = self.gelu_fn(self.decoder(
             tgt=positional_sequence,
             memory=memory,
-            #tgt_mask=tgt_mask # TODO: Consider how relevant is using a target mask if we\
-            # just let captions to be limited
+            tgt_mask=tgt_mask
         ))
 
         # Project the decoder output to vocabulary space
@@ -107,7 +109,7 @@ class TransformerDecoder(nn.Module):
             'hidden_states': None
         }
 
-    def forward(self, batch):
+    def autorrecurrent_forward(self, batch):
 
         features = self.encoder(batch)['features']
         memory = self.memory(features).transpose(1, 0)
@@ -124,7 +126,6 @@ class TransformerDecoder(nn.Module):
         for seq_idx in range(1, self.max_tokens_decode):
 
             input_values = output_seq.detach().clone()[:seq_idx]
-
             prev_text_emb = self.pos_emb(self.embedding(input_values))
 
             hidden_state = self.gelu_fn(self.decoder(tgt=prev_text_emb, memory=memory))

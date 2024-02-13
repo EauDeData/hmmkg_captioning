@@ -7,10 +7,11 @@ class Collator:
 
     '''
 
-    def __init__(self, transforms, text_tokenizer, graph_tokenizer):
+    def __init__(self, transforms, text_tokenizer, graph_tokenizer, padding_token = 0):
         self.transforms = transforms
         self.tokenizer = text_tokenizer
         self.graph_tokenizer = graph_tokenizer
+        self.padding_token = 0
         return
 
     @staticmethod
@@ -22,10 +23,32 @@ class Collator:
         # Reshape to (SEQ_SIZE, BATCH_SIZE, 30)
         return padded_sequence.view(batch_size, max_seq_size, token_leng).permute(1, 0, 2)
 
+    def simple_encoder_with_adj_collate(self, batch):
+
+        images = torch.stack([self.transforms(sample['image']) for sample in batch])
+        max_nodes = max(max(*sample['graph_data']['adj'].shape) for sample in batch)
+
+        print([[sample['graph_data'][node_type][idx]['global_idx']
+                        for idx in sample['graph_data'][node_type]]
+                       for sample in batch for node_type in ['to_node_emb', 'to_text_emb']])
+        exit()
+        all_adjs = torch.zeros(len(batch), max_nodes, max_nodes)
+        all_nodes = sorted([[sample['graph_data']['to_node_emb'][idx]
+                        for idx in sample['graph_data'][node_type]]
+                       for sample in batch for node_type in ['to_node_emb', 'to_text_emb']],
+               key=lambda x: x['global_idx'])
+        print(all_nodes)
+
+
+
+
     def base_collate_captioning(self, batch):
 
         ## IMAGE AND CAPTION COLLATED
         images = torch.stack([self.transforms(sample['image']) for sample in batch])
+
+        # adj_matrix = torch.stack([torch.from_numpy(sample['graph_data']['adj']) for sample in batch])
+
         tokenized_captions = torch.stack([self.tokenizer.tokenize(sample['caption']) for sample in batch]).view\
             (images.shape[0], -1) # (BATCH_SIZE, context_length)
 
@@ -37,7 +60,10 @@ class Collator:
         node_embs_tokenized = [[self.graph_tokenizer.token_dict[idx]
                             for idx in sample['graph_data']['to_node_emb']]
                            for sample in batch]
-
+        print([[idx
+                            for idx in sample['graph_data']['to_node_emb']]
+                           for sample in batch])
+        exit()
         node_embs_categories_tokenized = [[self.graph_tokenizer.token_dict[
                                                 sample['graph_data']['to_node_emb'][idx]['node_type']
                                             ]

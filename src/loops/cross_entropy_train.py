@@ -7,8 +7,8 @@ def cross_entropy_train_loop(dataloader, optimizer, model, loss_function = torch
     for batch in tqdm(dataloader):
         optimizer.zero_grad()
         output = model(batch)['language_head_output'].transpose(1, 0)
-        ouput_flattened = output.reshape(-1, output.shape[-1])
-        labels = batch['captions'].view(-1).to(output.device)
+        ouput_flattened = output.reshape(output.shape[0] * output.shape[1], output.shape[-1])
+        labels = batch['captions'].reshape(output.shape[0] * output.shape[1]).to(output.device)
         loss = loss_function(ouput_flattened, labels)
         loss.backward()
         optimizer.step()

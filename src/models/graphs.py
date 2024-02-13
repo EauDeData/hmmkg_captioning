@@ -159,3 +159,38 @@ class GraphContextGAT(nn.Module):
         features = torch.cat((sequences, image_representation), dim=1)
 
         return {'features': features}
+
+
+class GraphContextTransformerEncoder(nn.Module):
+    def __init__(self, image_processor: nn.Module, image_embedding_size: int,
+                 text_processor: nn.Module, text_embedding_size: int, feature_size: int,
+                 depth: int, heads: int,
+                 dropout: float = .1,
+                 device: str = 'cuda', freeze_encoder = False):
+
+        super(GraphContextTransformerEncoder, self).__init__()
+        self.device = device
+
+        self.text_processor = text_processor
+        self.text_projection = nn.Linear(text_embedding_size, feature_size)
+
+        self.image_processor = image_processor
+        self.image_projection = nn.Linear(image_embedding_size, feature_size)
+
+        encoder_layers = torch.nn.TransformerEncoderLayer(feature_size, heads, feature_size, dropout)
+        self.transformer_encoder = torch.nn.TransformerEncoder(encoder_layers, depth)
+
+        self.dropout = nn.Dropout(p=dropout)
+        self.activation = nn.LeakyReLU()
+
+        self.to(device)
+        if freeze_encoder:
+            print("(script) Freezing encoder layers!")
+            for param in self.text_processor.parameters():
+                param.requires_grad = False
+
+            for param in self.image_processor.parameters():
+                param.requires_grad = False
+
+    def forward(self, X):
+        print(X)

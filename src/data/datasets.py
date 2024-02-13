@@ -1,6 +1,7 @@
 import random
 
 import networkx as nx
+import numpy as np
 import pandas as pd
 import os
 from tqdm import tqdm
@@ -17,9 +18,10 @@ class CaptioningDataset(Dataset):
                  path_to_gexf_context: str = PATH_TO_GRAPH_GEXF,
                  path_to_images_csv: str = PATH_TO_IMAGES_TSV,
                  images_parent_folder: str = IMAGES_PARENT_FOLDER, split: str = 'test',
-                 dataset_checkpoint: str = DATASET_SAVE_PATH_FSTRING, include_quotes: bool = False):
+                 dataset_checkpoint: str = DATASET_SAVE_PATH_FSTRING,
+                 text_processor_nodes = TEXT_PROCESSOR_NODE_CATEGORIES, include_quotes: bool = False):
         self.random_walk_leng = random_walk_leng
-
+        self.to_text_nodes = text_processor_nodes
         dataset_checkpoint_name = f'{split}_{neighbor_context_window}_radius_context_include_quotes_{include_quotes}'
 
         if (not dataset_checkpoint is None) and (os.path.exists(dataset_checkpoint.format(dataset_checkpoint_name))):
@@ -137,7 +139,7 @@ class CaptioningDataset(Dataset):
 
                 node_type, content = data_item['context'].nodes[node_src]['node_type'],\
                     data_item['context'].nodes[node_src]['content']
-                toadd_dict = graph_data['to_text_emb'] if node_type in TEXT_PROCESSOR_NODE_CATEGORIES\
+                toadd_dict = graph_data['to_text_emb'] if node_type in self.to_text_nodes\
                     else graph_data['to_node_emb']
 
                 toadd_dict[node_src] = {
@@ -151,7 +153,7 @@ class CaptioningDataset(Dataset):
 
                 node_type, content = data_item['context'].nodes[node_tgt]['node_type'], \
                     data_item['context'].nodes[node_tgt]['content']
-                toadd_dict = graph_data['to_text_emb'] if node_type in TEXT_PROCESSOR_NODE_CATEGORIES \
+                toadd_dict = graph_data['to_text_emb'] if node_type in self.to_text_nodes \
                     else graph_data['to_node_emb']
 
                 toadd_dict[node_tgt] = {
@@ -175,6 +177,13 @@ class CaptioningDataset(Dataset):
                     'edge_type': edge_type
                 },
              ])
+
+
+        num_nodes = len(graph_data['to_node_emb']) + len(graph_data['to_text_emb'])
+        adj_matrix = np.eye(num_nodes, num_nodes)
+        for src, dst in [(edge['global_index_src'], edge['global_index_dst']) for edge in graph_data['edges']]:
+            adj_matrix[src, dst] = 1
+        graph_data['adj'] = adj_matrix
         return graph_data
 
     def __getitem__(self, idx):

@@ -15,12 +15,16 @@ def eval(dataloader, model, tokenizer, loss_function = torch.nn.CrossEntropyLoss
             ouput_flattened = output.reshape(-1, output.shape[-1])
             labels = batch['captions'].view(-1).to(output.device)
             loss = loss_function(ouput_flattened, labels)
+
             decoded_labels = [tokenizer.decode(row[:1 + row.index(tokenizer.eos_token_id)])
                               for row in batch['captions'].cpu().numpy().tolist()]
 
-            decoded_prediction = [tokenizer.decode(row[:(row.index(tokenizer.eos_token_id)+1
-                                                         if tokenizer.eos_token_id in row else -1)])
-                              for row in torch.argmax(output, -1).cpu().numpy().tolist()]
+            argmaxed_output = torch.argmax(output, 2)
+
+            #[:(row.index(tokenizer.eos_token_id)+1
+                                                         #if tokenizer.eos_token_id in row else -1)]
+            decoded_prediction = [tokenizer.decode(row)
+                              for row in argmaxed_output.cpu().numpy().tolist()]
 
             avg_loss += loss.item()
             avg_rouge += rouge_score(decoded_prediction, decoded_labels)['rouge1_fmeasure'].item()

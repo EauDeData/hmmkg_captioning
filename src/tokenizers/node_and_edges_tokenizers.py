@@ -45,7 +45,3 @@ class GraphTokenizer:
 
     def get_token_dict(self):
         return self.token_dict
-
-        graph_data = self.forward_graph_data(batch)
-        graph_embedding = self.graph_convs_gat(x=graph_data['node_features'], edge_index=graph_data['edge_idxs'],
-                                               edge_attr=graph_data['edge_features'])

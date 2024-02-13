@@ -115,24 +115,27 @@ class TransformerDecoder(nn.Module):
         output_seq = torch.empty((self.max_tokens_decode, features.shape[0]),
                                 device=self.encoder.device, dtype=torch.int64)
 
+        logits_seq = torch.empty((self.max_tokens_decode, features.shape[0], self.vocab_size),
+                                device=self.encoder.device, dtype=torch.float)
+
         output_seq[0, :] = self.start_token_id
+        logits_seq[0, :, self.start_token_id] = 1
 
         for seq_idx in range(1, self.max_tokens_decode):
 
             input_values = output_seq.detach().clone()[:seq_idx]
-            print(input_values[-1])
+
             prev_text_emb = self.pos_emb(self.embedding(input_values))
 
             hidden_state = self.gelu_fn(self.decoder(tgt=prev_text_emb, memory=memory))
 
             lm_output = self.lm_head(hidden_state)[-1, :]
-            print(lm_output.shape)
+            logits_seq[seq_idx, :, :] = lm_output
+
             argmaxed_output = torch.argmax(lm_output, dim=-1)
-            print(argmaxed_output.shape)
-            output_seq[seq_idx+1, :] = argmaxed_output
+            output_seq[seq_idx, :] = argmaxed_output
 
-
-        return {'language_head_output': output_seq}
+        return {'language_head_output': logits_seq}
 
 
 def scaled_dot_product_attention(query, key, value):

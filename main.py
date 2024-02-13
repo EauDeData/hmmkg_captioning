@@ -3,6 +3,7 @@ from src.data.collator import Collator
 from src.tokenizers.tokenizers import CLIPOriginalTokenizer
 from src.tokenizers.node_and_edges_tokenizers import GraphTokenizer
 from src.data.data_defaults import IMAGENET_MEANS, IMAGENET_STDS
+from src.data.datautils import compute_or_get_vocab_weights
 from src.models.graphs import GraphContextGAT
 from src.models.text import CLIPTextEncoder, TransformerDecoder, LSTMDecoderWithAttention
 from src.models.vision import CLIPVisionEncoder
@@ -105,7 +106,15 @@ def main(args):
     else: logger = None
 
     personal_best = 0
-    loss_function = torch.nn.CrossEntropyLoss(ignore_index=0)
+    loss_args = {'ignore_index': 0}
+    if args.use_cross_entropy_weights:
+        print('(script) Using Cross Entropy weights')
+        loss_args['weight'] = compute_or_get_vocab_weights(train_loader.dataset,
+                                                            text_tokenizer,
+                                                            0,
+                                                            len(text_tokenizer)
+                                                            ).to(args.device)
+    loss_function = torch.nn.CrossEntropyLoss(**loss_args)
     for epoch in range(args.epoches):
 
         print(f"-----Training Epoch {epoch}--------")

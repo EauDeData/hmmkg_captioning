@@ -43,7 +43,6 @@ class TransformerTextEncoder(nn.Module):
         # Per ser consistents, hem de tokenitzar fora i fer els embeddings al forward
         pass
 
-# TODO: Get ANY decoder to be able to overfit, lmao
 class TransformerDecoder(nn.Module):
     def __init__(self, encoder, encoder_input_size, text_embedding, decoder_token_size, decoder_depth, vocab_size,
                  decoder_width,
@@ -62,11 +61,14 @@ class TransformerDecoder(nn.Module):
 
         self.cls_token = torch.zeros(1, decoder_token_size, device=encoder.device)
 
-        self.pos_emb = PositionalEncoding(decoder_token_size, dropout=0, max_len=max_tokens_during_train)
         self.max_tokens_decode = max_tokens_during_train
         self.vocab_size = vocab_size
         self.d_size = decoder_token_size
         self.stop_token_id = stop_token
+
+        # self.pos_emb = PositionalEncoding(decoder_token_size, dropout=0, max_len=max_tokens_during_train)
+        self.pos_emb = torch.nn.Linear(1, max_tokens_during_train * self.d_size) # Acts as a parameter\
+        # for batching porpouses
 
         self.embedding = text_embedding.cpu()
 
@@ -75,50 +77,24 @@ class TransformerDecoder(nn.Module):
                 param.requires_grad = False
 
         self.to(self.encoder.device)
-
-    def auto_forward(self, X):
-
-        encoder_output = self.encoder(X)['features']  # Pass the batch X through the encoder
-        memory = self.memory(encoder_output).transpose(1,0)
-        sequence = torch.empty((self.max_tokens_decode+1, memory.shape[1], self.d_size), device=self.encoder.device)
-        sequence[0, :, :] = self.cls_token
-        for sequence_id in range(1, self.max_tokens_decode + 1):
-
-            target_sequence = self.pos_emb(sequence[:sequence_id, :, :])
-
-            decoded = self.gelu_fn(self.decoder(
-                tgt=target_sequence,
-                memory=memory))
-
-            lang_head_output = self.lm_head(decoded[-1, :, :])
-            #print('shape of tgt seq:', lang_head_output.shape)
-            #input()
-
-            most_likely_tokens = self.embedding(torch.argmax(lang_head_output, 1)).detach() # TODO: Observar\
-            # si això és un perill
-            sequence[sequence_id - 1, :, :] = most_likely_tokens.unsqueeze(0)
-
-        return {
-            'features': memory,
-            'language_head_output': self.lm_head(sequence[1:]), # El token 0 és el CLS
-            'hidden_states': sequence[1:]
-        }
-
     def forward(self, X):
 
         encoder_output = self.encoder(X)['features']  # Pass the batch X through the encoder
         memory = self.memory(encoder_output).transpose(1,0)
-        sequence = torch.zeros((self.max_tokens_decode, memory.shape[1], self.d_size), device=self.encoder.device)
+        #sequence = torch.zeros((self.max_tokens_decode, memory.shape[1], self.d_size), device=self.encoder.device)
         # sequence[0, :, :] = self.cls_token
 
-        positional_sequence = self.pos_emb(sequence)
-        tgt_mask = nn.Transformer.generate_square_subsequent_mask(positional_sequence.size(0))\
-            .to(positional_sequence.device)
+        positional_sequence = self.pos_emb(torch.zeros((memory.shape[1], 1), device=memory.device)).\
+            reshape(memory.shape[1], self.max_tokens_decode, self.d_size)\
+            .transpose(1, 0)
+        #tgt_mask = nn.Transformer.generate_square_subsequent_mask(positional_sequence.size(0))\
+        #    .to(positional_sequence.device)
 
         decoded = self.gelu_fn(self.decoder(
             tgt=positional_sequence,
             memory=memory,
-            tgt_mask=tgt_mask
+            #tgt_mask=tgt_mask # TODO: Consider how relevant is using a target mask if we\
+            # just let captions to be limited
         ))
 
         # Project the decoder output to vocabulary space

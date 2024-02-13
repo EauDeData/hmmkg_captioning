@@ -19,3 +19,5 @@ GRAPH_TOKENIZER_DEFAULT_PATH = '/data/users/amolina/hmmkg/graph_tokenizer.json'
 
 IMAGENET_MEANS = [0.485, 0.456, 0.406]  # RGB mean values
 IMAGENET_STDS = [0.229, 0.224, 0.225]   # RGB standard deviation values
+
+VOCAB_WEIGHTS = './output_viz/vocab_weights.json'

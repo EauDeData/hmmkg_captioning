@@ -72,6 +72,8 @@ def parse_arguments():
     parser.add_argument('--load_global_checkpoint', type=str, default=None)
     parser.add_argument('--save_checkpoint_to', type=str, default=None)
 
+    parser.add_argument('--use_cross_entropy_weights', action='store_false')
+
     arguments = parser.parse_args()
     assert_preconditions(arguments)
     return arguments

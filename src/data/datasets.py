@@ -104,7 +104,7 @@ class CaptioningDataset(Dataset):
                 dataset_checkpoint_name), 'wb'))
 
     def __len__(self):
-        return 2 #len(self.data_items)
+        return len(self.data_items)
 
     def get_graph_data_from_path(self, data_item, random_walk_sequence):
         graph_data = {'to_node_emb': {}, 'to_text_emb': {}, 'edges': [], 'total_edges': []}

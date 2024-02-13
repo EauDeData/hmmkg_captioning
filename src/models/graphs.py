@@ -47,6 +47,7 @@ class GraphContextGAT(nn.Module):
 
         self.to(device)
         if freeze_encoder:
+            print("(script) Freezing encoder layers!")
             for param in self.text_processor.parameters():
                 param.requires_grad = False
 

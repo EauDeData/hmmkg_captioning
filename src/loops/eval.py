@@ -20,7 +20,7 @@ def eval(dataloader, model, tokenizer, loss_function = torch.nn.CrossEntropyLoss
 
             decoded_prediction = [tokenizer.decode(row[:(row.index(tokenizer.eos_token_id)+1
                                                          if tokenizer.eos_token_id in row else -1)])
-                              for row in torch.argmax(output, 1).cpu().numpy().tolist()]
+                              for row in torch.argmax(output, -1).cpu().numpy().tolist()]
 
             avg_loss += loss.item()
             avg_rouge += rouge_score(decoded_prediction, decoded_labels)['rouge1_fmeasure'].item()

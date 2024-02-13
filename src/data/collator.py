@@ -28,9 +28,11 @@ class Collator:
         images = torch.stack([self.transforms(sample['image']) for sample in batch])
         max_nodes = max(max(*sample['graph_data']['adj'].shape) for sample in batch)
 
-        print([[sample['graph_data'][node_type][idx]['global_idx']
-                        for idx in sample['graph_data'][node_type]]
-                       for sample in batch for node_type in ['to_node_emb', 'to_text_emb']])
+        print([[sample['graph_data']['to_node_emb'][idx]['global_idx']
+                        for idx in sample['graph_data']['to_node_emb']]
+                       for sample in batch] + [[sample['graph_data']['to_text_emb'][idx]['global_idx']
+                        for idx in sample['graph_data']['to_text_emb']]
+                       for sample in batch])
         exit()
         all_adjs = torch.zeros(len(batch), max_nodes, max_nodes)
         all_nodes = sorted([[sample['graph_data']['to_node_emb'][idx]

@@ -127,7 +127,7 @@ class CaptioningDataset(Dataset):
         '''
 
         added_nodes = []
-        for global_index, (node_src, node_tgt) in enumerate(zip(random_walk_sequence, random_walk_sequence[1:])):
+        for id_loop, (node_src, node_tgt) in enumerate(zip(random_walk_sequence, random_walk_sequence[1:])):
 
             edge = (node_src, node_tgt)
             if edge in graph_data['total_edges'] or edge[::-1] in graph_data['total_edges']:
@@ -179,7 +179,10 @@ class CaptioningDataset(Dataset):
              ])
 
 
-        num_nodes = len(graph_data['to_node_emb']) + len(graph_data['to_text_emb'])
+        nodes = graph_data['to_node_emb'] + graph_data['to_text_emb']
+        print(nodes)
+        exit()
+        num_nodes = len(nodes)
         adj_matrix = np.eye(num_nodes, num_nodes)
         for src, dst in [(edge['global_index_src'], edge['global_index_dst']) for edge in graph_data['edges']]:
             adj_matrix[src, dst] = 1

@@ -65,9 +65,10 @@ class TransformerDecoder(nn.Module):
         self.vocab_size = vocab_size
         self.d_size = decoder_token_size
         self.stop_token_id = stop_token
+        self.start_token_id = start_token_id
 
-        # self.pos_emb = PositionalEncoding(decoder_token_size, dropout=0, max_len=max_tokens_during_train)
-        self.pos_emb = torch.nn.Linear(1, max_tokens_during_train * self.d_size) # Acts as a parameter\
+        self.pos_emb = PositionalEncoding(decoder_token_size, dropout=0, max_len=max_tokens_during_train)
+        #self.pos_emb = torch.nn.Linear(1, max_tokens_during_train * self.d_size) # Acts as a parameter\
         # for batching porpouses
 
         self.embedding = text_embedding.cpu()
@@ -77,7 +78,7 @@ class TransformerDecoder(nn.Module):
                 param.requires_grad = False
 
         self.to(self.encoder.device)
-    def forward(self, X):
+    def _forward(self, X):
 
         encoder_output = self.encoder(X)['features']  # Pass the batch X through the encoder
         memory = self.memory(encoder_output).transpose(1,0)
@@ -105,6 +106,33 @@ class TransformerDecoder(nn.Module):
             'language_head_output': output,
             'hidden_states': None
         }
+
+    def forward(self, batch):
+
+        features = self.encoder(batch)['features']
+        memory = self.memory(features).transpose(1, 0)
+
+        output_seq = torch.empty((self.max_tokens_decode, features.shape[0]),
+                                device=self.encoder.device, dtype=torch.long)
+
+        output_seq[0, :] = self.start_token_id
+
+        for seq_idx in range(1, self.max_tokens_decode):
+
+            input_values = output_seq.detach().clone()[:seq_idx]
+            print(input_values[-1])
+            prev_text_emb = self.pos_emb(self.embedding(input_values))
+
+            hidden_state = self.gelu_fn(self.decoder(tgt=prev_text_emb, memory=memory))
+
+            lm_output = self.lm_head(hidden_state)
+
+            argmaxed_output = torch.argmax(lm_output, dim=-1)
+
+            output_seq[seq_idx+1, :] = argmaxed_output[-1, :]
+
+
+        return {'language_head_output': output_seq}
 
 
 def scaled_dot_product_attention(query, key, value):

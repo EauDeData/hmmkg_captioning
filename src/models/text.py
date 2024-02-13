@@ -127,7 +127,8 @@ class TransformerDecoder(nn.Module):
 
             lm_output = self.lm_head(hidden_state)
 
-            argmaxed_output = torch.argmax(lm_output, dim=-1)
+            print(lm_output.shape)
+            argmaxed_output = torch.argmax(lm_output, dim=1)
 
             output_seq[seq_idx+1, :] = argmaxed_output[-1, :]
 

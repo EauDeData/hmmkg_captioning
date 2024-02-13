@@ -126,9 +126,9 @@ class TransformerDecoder(nn.Module):
             hidden_state = self.gelu_fn(self.decoder(tgt=prev_text_emb, memory=memory))
 
             lm_output = self.lm_head(hidden_state)[-1, :]
-
-            argmaxed_output = torch.argmax(lm_output, dim=1)
-
+            print(lm_output.shape)
+            argmaxed_output = torch.argmax(lm_output, dim=-1)
+            print(argmaxed_output.shape)
             output_seq[seq_idx+1, :] = argmaxed_output
 
 

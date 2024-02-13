@@ -1,5 +1,7 @@
 import torch
 from torch.nn.utils.rnn import pad_sequence
+
+from src.data.data_defaults import MYSELF_TAG
 class Collator:
     '''
 
@@ -28,18 +30,34 @@ class Collator:
         images = torch.stack([self.transforms(sample['image']) for sample in batch])
         max_nodes = max(max(*sample['graph_data']['adj'].shape) for sample in batch)
 
-        print([[sample['graph_data']['to_node_emb'][idx]['global_idx']
-                        for idx in sample['graph_data']['to_node_emb']]
-                       for sample in batch] + [[sample['graph_data']['to_text_emb'][idx]['global_idx']
-                        for idx in sample['graph_data']['to_text_emb']]
-                       for sample in batch])
-        exit()
-        all_adjs = torch.zeros(len(batch), max_nodes, max_nodes)
-        all_nodes = sorted([[sample['graph_data']['to_node_emb'][idx]
-                        for idx in sample['graph_data'][node_type]]
-                       for sample in batch for node_type in ['to_node_emb', 'to_text_emb']],
-               key=lambda x: x['global_idx'])
-        print(all_nodes)
+        all_adjs = torch.zeros(len(batch), max_nodes + 1, max_nodes + 1)
+        all_nodes = []
+
+        for num, sample in enumerate(batch):
+            connectivity_matrix = torch.from_numpy(sample['graph_data']['adj'])
+            all_adjs[num, :connectivity_matrix.shape[0], :connectivity_matrix.shape[1]] = connectivity_matrix
+            nodes = sample['graph_data']['listed_nodes']
+
+            all_adjs[num, -1, :len(nodes)] = 1
+            all_adjs[num, :len(nodes), -1] = 1 # Everything connected to the image but the padding
+
+
+            padded_nodes = self.tokenizer.tokenize(
+                [node['content'] for node in nodes] + ['[PADDING]'] * (max_nodes - len(nodes))
+            )
+
+            all_nodes.append(padded_nodes)
+
+        stacked_nodes = torch.stack(all_nodes)
+
+        return {
+            'adj_matrix': all_adjs,
+            'images': images,
+            'nodes': stacked_nodes,
+            'captions': self.tokenizer.tokenize([sample['caption'] for sample in batch]).view\
+            (images.shape[0], -1)
+
+        }
 
 
 
@@ -62,10 +80,7 @@ class Collator:
         node_embs_tokenized = [[self.graph_tokenizer.token_dict[idx]
                             for idx in sample['graph_data']['to_node_emb']]
                            for sample in batch]
-        print([[idx
-                            for idx in sample['graph_data']['to_node_emb']]
-                           for sample in batch])
-        exit()
+
         node_embs_categories_tokenized = [[self.graph_tokenizer.token_dict[
                                                 sample['graph_data']['to_node_emb'][idx]['node_type']
                                             ]

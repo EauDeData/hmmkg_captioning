@@ -177,7 +177,7 @@ class GraphContextTransformerEncoder(nn.Module):
         self.image_processor = image_processor
         self.image_projection = nn.Linear(image_embedding_size, feature_size)
 
-        encoder_layers = torch.nn.TransformerEncoderLayer(feature_size, heads, feature_size, dropout)
+        encoder_layers = torch.nn.TransformerEncoderLayer(feature_size, heads, feature_size, dropout, batch_first=True)
         self.transformer_encoder = torch.nn.TransformerEncoder(encoder_layers, depth)
 
         self.dropout = nn.Dropout(p=dropout)
@@ -193,4 +193,20 @@ class GraphContextTransformerEncoder(nn.Module):
                 param.requires_grad = False
 
     def forward(self, X):
-        print(X)
+
+        image_vector = self.activation(self.image_processor(X['images'].to(self.device)))
+        projected_image_token = self.image_projection(image_vector)[None, :, :]
+
+        batch, seq_size, n_tokens = X['nodes'].shape
+        text_vector = self.activation(self.text_processor(X['nodes'].reshape(batch * seq_size, n_tokens).\
+                                                          to(self.device)).reshape(batch, seq_size, -1)).\
+            transpose(1, 0)
+
+        projected_node_tokens = self.text_projection(text_vector)
+
+        # IMPORTANT!! IMAGE NODE MUST BE THE LAST ONE OF THE SEQUENCE TO MATCH THE MASK
+        full_sequence = (torch.cat((projected_node_tokens, projected_image_token), dim = 0).\
+                         transpose(1, 0))
+        encoded_features = self.transformer_encoder(full_sequence, mask=X['adj_matrix'].to(self.device))
+        print(encoded_features.shape)
+        exit()

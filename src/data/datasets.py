@@ -178,14 +178,18 @@ class CaptioningDataset(Dataset):
                 },
              ])
 
-        print(graph_data['to_node_emb'])
-        nodes = graph_data['to_node_emb'] + graph_data['to_text_emb']
-
+        nodes = {**graph_data['to_node_emb'], **graph_data['to_text_emb']}
         num_nodes = len(nodes)
+        sorted_nodes = sorted(nodes.values(), key=lambda x: nodes[x['content']]['global_idx'])
+
         adj_matrix = np.eye(num_nodes, num_nodes)
+
         for src, dst in [(edge['global_index_src'], edge['global_index_dst']) for edge in graph_data['edges']]:
             adj_matrix[src, dst] = 1
+
         graph_data['adj'] = adj_matrix
+        graph_data['listed_nodes'] = sorted_nodes
+
         return graph_data
 
     def __getitem__(self, idx):

@@ -6,7 +6,7 @@ from src.data.data_defaults import IMAGENET_MEANS, IMAGENET_STDS
 from src.data.datautils import compute_or_get_vocab_weights
 from src.models.graphs import GraphContextGAT, GraphContextTransformerEncoder
 from src.models.text import CLIPTextEncoder, TransformerDecoder, LSTMDecoderWithAttention
-from src.models.vision import CLIPVisionEncoder
+from src.models.vision import CLIPVisionEncoder, CaTrBackbone
 from src.loops.cross_entropy_train import cross_entropy_train_loop
 from src.loops.eval import eval
 
@@ -26,6 +26,8 @@ def get_graph_embedding(args):
 def get_image_encoder(args):
     if args.image_encoder == 'CLIP':
         return CLIPVisionEncoder(clip_model_tag=args.clip_tag)
+    elif args.image_encoder == 'CaTr':
+        return CaTrBackbone()
     else:
         raise NotImplementedError(f"{args.image_encoder} is not among implemented image encoders")
 
@@ -43,7 +45,9 @@ def prepare_models(args):
         graph_processor = GraphContextTransformerEncoder(visual_model, args.image_emb_size, textual_model,
                                                          args.text_emb_size, args.gat_feature_size, args.gat_depth,
                                                          args.gat_width,device=args.device,
-                                                         freeze_encoder=args.freeze_backbone)
+                                                         freeze_encoder=args.freeze_backbone,
+                                                         train_text=args.train_text, train_vision=args.train_vision
+                                                         )
 
     elif args.encoder_approach == 'gat_encoder':
         graph_processor = GraphContextGAT(visual_model, args.image_emb_size, textual_model, args.text_emb_size,

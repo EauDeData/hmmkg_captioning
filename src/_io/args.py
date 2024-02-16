@@ -20,8 +20,15 @@ def assert_preconditions(args):
     if args.text_encoder == 'CLIP':
         assert args.text_context_size == 77, "When using CLIP, context must be set to 77"
         assert args.text_emb_size==512, "CLIP uses 512 embedding size (text)"
+        assert args.decoder_emb_size==512, 'CLIP projects text to 512 features, so does decoder'
+
     if args.image_encoder == 'CLIP':
         assert args.image_emb_size == 512, "CLIP uses 512 embedding size (image)"
+    elif args.image_encoder == 'CaTr':
+        assert args.image_emb_size == 256
+
+    assert not (args.freeze_backbone and (args.train_vision and args.train_text)), 'what the fuck'
+    assert not (not args.freeze_backbone and (args.train_vision and args.train_text)), 'what the fuck'
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -51,7 +58,7 @@ def parse_arguments():
     parser.add_argument('--nodes_to_text', nargs='+', type=str, default=TEXT_PROCESSOR_NODE_CATEGORIES)
     parser.add_argument('--nodes_to_embedding', nargs='+', type=str, default=EMBEDDING_NODE_CATEGORIES)
 
-    parser.add_argument('--image_encoder', type=str, default='CLIP')
+    parser.add_argument('--image_encoder', type=str, default='CLIP', choices=['CLIP', 'CaTr'])
     parser.add_argument('--text_encoder', type=str, default='CLIP')
     parser.add_argument('--text_context_size', type=int, default=DEFAULT_TEXT_TOKENIZER_CONTEXT_LENGTH)
 
@@ -68,6 +75,9 @@ def parse_arguments():
     parser.add_argument('--gat_in_channels', type=int, default=256)
     parser.add_argument('--gat_hidden_channels', type=int, default=128)
     parser.add_argument('--freeze_backbone', action='store_true')
+    parser.add_argument('--train_vision', action='store_true')
+    parser.add_argument('--train_text', action='store_true')
+
 
     parser.add_argument('--decoder_architecture', type=str, default='tr', choices=['tr', 'lstm'])
     parser.add_argument('--decoder_emb_size', type=int, default=512)

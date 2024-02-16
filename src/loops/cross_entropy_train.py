@@ -11,6 +11,7 @@ def cross_entropy_train_loop(dataloader, optimizer, model, loss_function = torch
         labels = batch['captions'].reshape(output.shape[0] * output.shape[1]).to(output.device)
         loss = loss_function(ouput_flattened, labels)
         loss.backward()
+
         optimizer.step()
         losses.append(loss.item())
         if logger:

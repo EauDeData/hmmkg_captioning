@@ -31,6 +31,8 @@ def compute_or_get_vocab_weights(dataset, tokenizer, padding_token_id, vocab_siz
     for key, weight in token_dict.items():
         weights[int(key)] = 1 - weight
     weights[padding_token_id] = 0
+    weights[tokenizer.bos_token_id] = 1
+    weights[tokenizer.eos_token_id] = 1
     return weights
 
 

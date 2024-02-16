@@ -1,5 +1,6 @@
 import torch
 from torch.nn.utils.rnn import pad_sequence
+import torch.nn.functional as F
 
 from src.data.data_defaults import MYSELF_TAG
 class Collator:
@@ -50,7 +51,7 @@ class Collator:
 
         stacked_nodes = torch.stack(all_nodes)
 
-        return {
+        data = {
             'adj_matrix': all_adjs,
             'images': images,
             'nodes': stacked_nodes,
@@ -58,9 +59,13 @@ class Collator:
             (images.shape[0], -1)
 
         }
+        padding_captions = torch.zeros_like(data['captions'], dtype=torch.float32)
+        for num, caption in enumerate(data['captions']):
 
+            padding_start_index = caption.tolist().index(self.tokenizer.eos_token_id) + 1
+            padding_captions[num, padding_start_index:] = float('-inf') # Crec que això ha de ser 0/1
 
-
+        return {**data, **{'captions_padding': padding_captions}}
 
     def base_collate_captioning(self, batch):
 

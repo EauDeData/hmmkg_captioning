@@ -161,12 +161,13 @@ class GraphContextGAT(nn.Module):
         return {'features': features}
 
 
+
 class GraphContextTransformerEncoder(nn.Module):
     def __init__(self, image_processor: nn.Module, image_embedding_size: int,
                  text_processor: nn.Module, text_embedding_size: int, feature_size: int,
                  depth: int, heads: int,
                  dropout: float = .1,
-                 device: str = 'cuda', freeze_encoder = False):
+                 device: str = 'cuda', freeze_encoder = False, train_text = False, train_vision=False):
 
         super(GraphContextTransformerEncoder, self).__init__()
         self.device = device
@@ -184,31 +185,35 @@ class GraphContextTransformerEncoder(nn.Module):
         self.activation = nn.LeakyReLU()
 
         self.to(device)
+
         if freeze_encoder:
             print("(script) Freezing encoder layers!")
-            for param in self.text_processor.parameters():
-                param.requires_grad = False
-
-            for param in self.image_processor.parameters():
-                param.requires_grad = False
+            if not train_text:
+                for param in self.text_processor.parameters():
+                    param.requires_grad = False
+            if not train_vision:
+                for param in self.image_processor.parameters():
+                    param.requires_grad = False
 
     def forward(self, X):
 
         image_vector = self.activation(self.image_processor(X['images'].to(self.device)))
-        projected_image_token = self.image_projection(image_vector)[None, :, :]
+        projected_image_token = self.dropout(self.image_projection(image_vector))
+        if len(projected_image_token) == 2: # Single feature:
+            projected_image_token = projected_image_token.unsqueeze(0)
 
         batch, seq_size, n_tokens = X['nodes'].shape
-        text_vector = self.activation(self.text_processor(X['nodes'].reshape(batch * seq_size, n_tokens).\
+        text_vector = self.dropout(self.activation(self.text_processor(X['nodes'].reshape(batch * seq_size, n_tokens).\
                                                           to(self.device)).reshape(batch, seq_size, -1)).\
-            transpose(1, 0)
+            transpose(1, 0))
 
         projected_node_tokens = self.text_projection(text_vector)
 
         # IMPORTANT!! IMAGE NODE MUST BE THE LAST ONE OF THE SEQUENCE TO MATCH THE MASK
         full_sequence = (torch.cat((projected_node_tokens, projected_image_token), dim = 0).\
                          transpose(1, 0))
+        output = self.dropout(self.activation(self.transformer_encoder(full_sequence)))
 
-        print(X['adj_matrix'].shape, full_sequence.shape)
-        encoded_features = self.transformer_encoder(full_sequence, mask=X['adj_matrix'].to(self.device))
-        print(encoded_features.shape)
-        exit()
+        return {
+            'features': output
+        }

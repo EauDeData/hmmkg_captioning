@@ -82,14 +82,57 @@ class TransformerDecoder(nn.Module):
 
         self.forward = self.autorrecurrent_forward if auto_recurrent else self.non_autorecurrent_forward
 
+    def eval_forward(self, X):
+
+        encoder_output = self.encoder(X)['features']  # Pass the batch X through the encoder
+        memory = self.memory(encoder_output).transpose(1, 0)
+
+        # Initialize the input for autoregressive decoding
+        input_sequence = torch.tensor([[self.start_token_id]] * memory.size(1), dtype=torch.long, device=memory.device)
+        output_logits = torch.empty(memory.size(1), self.max_tokens_decode, self.vocab_size, device=memory.device)
+        output_logits[:, 0, self.start_token_id] = 1
+        # Autoregressive generation loop
+        for idx in range(self.max_tokens_decode - 1):
+
+            sequence = self.embedding(input_sequence)
+            positional_sequence = self.pos_emb(sequence.transpose(1, 0))
+            #tgt_mask = nn.Transformer.generate_square_subsequent_mask(positional_sequence.size(0)).to(
+            #    positional_sequence.device
+            #)
+
+            decoded = self.gelu_fn(self.decoder(
+                tgt=positional_sequence,
+                memory=memory,
+            ))
+
+            # Project the decoder output to vocabulary space
+            output = self.lm_head(decoded[-1])  # Take the last time step's output
+            output_logits[:, idx + 1] = output
+
+            # Get the predicted token (argmax)
+            predicted_token = output.argmax(dim=-1)
+
+            # Concatenate the predicted token to the input sequence for the next iteration
+            input_sequence = torch.cat([input_sequence, predicted_token.unsqueeze(-1)], dim=-1)
+
+        # Return the generated sequence (excluding the start token)
+        generated_sequence = input_sequence
+
+        return {
+            'features': memory,
+            'generated_sequence': generated_sequence,
+            'language_head_output': output_logits,
+            'hidden_states': None
+        }
+
     def non_autorecurrent_forward(self, X):
 
         encoder_output = self.encoder(X)['features']  # Pass the batch X through the encoder
         memory = self.memory(encoder_output).transpose(1,0)
-        sequence = torch.zeros((self.max_tokens_decode, memory.shape[1], self.d_size), device=self.encoder.device)
-        sequence[0, :, :] = self.cls_token
 
-        positional_sequence = self.pos_emb(sequence)
+        sequence = self.embedding(X['captions'].to(memory.device))
+
+        positional_sequence = self.pos_emb(sequence.transpose(1, 0))
         tgt_mask = nn.Transformer.generate_square_subsequent_mask(positional_sequence.size(0)).to(
             positional_sequence.device
         )
@@ -97,6 +140,7 @@ class TransformerDecoder(nn.Module):
         decoded = self.gelu_fn(self.decoder(
             tgt=positional_sequence,
             memory=memory,
+            tgt_key_padding_mask=X['captions_padding'].to(memory.device),
             tgt_mask=tgt_mask
         ))
 
@@ -110,33 +154,7 @@ class TransformerDecoder(nn.Module):
         }
 
     def autorrecurrent_forward(self, batch):
-
-        features = self.encoder(batch)['features']
-        memory = self.memory(features).transpose(1, 0)
-
-        output_seq = torch.empty((self.max_tokens_decode, features.shape[0]),
-                                device=self.encoder.device, dtype=torch.int64)
-
-        logits_seq = torch.empty((self.max_tokens_decode, features.shape[0], self.vocab_size),
-                                device=self.encoder.device, dtype=torch.float)
-
-        output_seq[0, :] = self.start_token_id
-        logits_seq[0, :, self.start_token_id] = 1
-
-        for seq_idx in range(1, self.max_tokens_decode):
-
-            input_values = output_seq.detach().clone()[:seq_idx]
-            prev_text_emb = self.pos_emb(self.embedding(input_values))
-
-            hidden_state = self.gelu_fn(self.decoder(tgt=prev_text_emb, memory=memory))
-
-            lm_output = self.lm_head(hidden_state)[-1, :]
-            logits_seq[seq_idx, :, :] = lm_output
-
-            argmaxed_output = torch.argmax(lm_output, dim=-1)
-            output_seq[seq_idx, :] = argmaxed_output
-
-        return {'language_head_output': logits_seq}
+        raise NotImplementedError('For training autoregurring, implement it. For eval, use eval_forward()')
 
 
 def scaled_dot_product_attention(query, key, value):
@@ -181,6 +199,8 @@ class LSTMDecoderWithAttention(nn.Module):
 
         self.to(encoder.device)
 
+    def eval_forward(self, batch):
+        return self.forward(batch)
     def forward(self, batch):
 
         features = self.encoder(batch)['features']
@@ -206,9 +226,16 @@ class LSTMDecoderWithAttention(nn.Module):
             context, attn = self.attention_layer(context_key, input_seq_keys, context_values) # This gives us
             # context depending on the sequence time
 
-            hidden_state, sequence_ctx = self.lstm_cell(context[:, 0, :], (hidden_state, sequence_ctx))
+            #print(context.shape, hidden_state.shape)
+            hidden_state, sequence_ctx = self.lstm_cell(context[:, 0], (hidden_state, sequence_ctx))
             output_seq[seq_idx] = self.lm_head(hidden_state)
 
         return {'language_head_output': output_seq}
 
 
+class CaTrDecoder(nn.Module):
+    def __init__(self):
+        super(CaTrDecoder).__init__()
+        model = torch.hub.load('saahiluppal/catr', 'v3', pretrained=True)
+        self.embeddings = model.transformer.embeddings
+        self.decoder = model.transformer.decoder

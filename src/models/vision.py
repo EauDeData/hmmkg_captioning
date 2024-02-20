@@ -40,5 +40,3 @@ class CaTrBackbone(nn.Module):
         memory = self.encoder(projected, src_key_padding_mask=mask, pos=pos_embed)
 
         return memory
-
-

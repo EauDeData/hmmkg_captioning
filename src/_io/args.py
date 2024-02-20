@@ -30,6 +30,7 @@ def assert_preconditions(args):
     assert not (args.freeze_backbone and (args.train_vision and args.train_text)), 'what the fuck'
     assert not (not args.freeze_backbone and (args.train_vision and args.train_text)), 'what the fuck'
 
+
 def parse_arguments():
     parser = argparse.ArgumentParser()
 
@@ -39,6 +40,7 @@ def parse_arguments():
     parser.add_argument('--lr', type=float, default=5e-4)
     parser.add_argument('--epoches', type=int, default=100)
     parser.add_argument('--log_wandb', action='store_true')
+    parser.add_argument('--use_sbert', action='store_true')
     parser.add_argument('--optimizer', default='RMSprop', type=str,
                         choices=['Adam', 'AdamW', 'RMSprop'])
 

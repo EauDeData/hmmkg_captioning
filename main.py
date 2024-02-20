@@ -53,7 +53,7 @@ def prepare_models(args):
         graph_processor = GraphContextGAT(visual_model, args.image_emb_size, textual_model, args.text_emb_size,
                                           args.gat_feature_size, graph_embedding, args.gat_depth, args.gat_width,
                                           args.gat_in_channels, args.gat_hidden_channels, device=args.device,
-                                          freeze_encoder=args.freeze_backbone)
+                                          freeze_encoder=args.freeze_backbone or args.train_text)
     else:
         raise NotImplementedError(f"Encoder approach {args.encoder_approach} not implemented")
 
@@ -86,7 +86,7 @@ def prepare_data(args, text_tokenizer, graph_tokenizer):
     transforms = torchvision.transforms.Compose([torchvision.transforms.Resize((224, 224), ),
                                                  torchvision.transforms.ToTensor(),
                                                  torchvision.transforms.Normalize(IMAGENET_MEANS, IMAGENET_STDS)], )
-    collator = Collator(transforms, text_tokenizer, graph_tokenizer)
+    collator = Collator(transforms, text_tokenizer, graph_tokenizer, use_sbert=args.use_sbert)
 
     train_set, test_set = (CaptioningDataset(**{**dataset_kwargs, **{'split': 'train'}}),
                            CaptioningDataset(**{**dataset_kwargs, **{'split': 'test'}}))
@@ -160,7 +160,7 @@ def main(args):
 
         print(f"-----Training Epoch {epoch}--------")
         train_loss = cross_entropy_train_loop(train_loader, optimizer, model, logger=logger, epoch=epoch,
-                                              loss_function=loss_function)
+                                              loss_function=loss_function, tokenizer=text_tokenizer)
         print(f"(Script) Trained epoch {epoch} with loss {train_loss}")
 
         test_metrics = eval(test_loader, model, text_tokenizer, logger=logger,

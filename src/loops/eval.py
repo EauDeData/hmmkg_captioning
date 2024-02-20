@@ -11,7 +11,7 @@ def eval(dataloader, model, tokenizer, loss_function = torch.nn.CrossEntropyLoss
         avg_bleu, avg_perplex, avg_rouge, avg_bert, avg_loss = 0,0,0,0,0
         for num, batch in tqdm(enumerate(dataloader)):
 
-            decoded_out = model.forward(batch) # TODO: This is just a quick debugging,\
+            decoded_out = model.eval_forward(batch)
             #TODO: WARNING!! use eval_forward for fair comparisons
             output =decoded_out['language_head_output'].transpose(1, 0)
             ouput_flattened = output.reshape(-1, output.shape[-1])
@@ -30,7 +30,7 @@ def eval(dataloader, model, tokenizer, loss_function = torch.nn.CrossEntropyLoss
             avg_rouge += rouge_score(decoded_prediction, decoded_labels)['rouge1_fmeasure'].item()
             avg_bleu += bleu_scorer(decoded_prediction, [[x] for x in decoded_labels]).item()
 
-    print('\n'.join([f'Predicted \ actual:\n\t{x.replace("!", "")}, | {y}' for x,y in zip(decoded_prediction,
+    print('\n'.join([f'Predicted \ actual:\n\t{x}, | {y}' for x,y in zip(decoded_prediction,
                                                                          decoded_labels)]))
 
     res_dict = {

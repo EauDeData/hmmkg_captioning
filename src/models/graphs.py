@@ -167,19 +167,22 @@ class GraphContextTransformerEncoder(nn.Module):
                  text_processor: nn.Module, text_embedding_size: int, feature_size: int,
                  depth: int, heads: int,
                  dropout: float = .1,
-                 device: str = 'cuda', freeze_encoder = False, train_text = False, train_vision=False):
+                 device: str = 'cuda', freeze_encoder = False, train_text = False, train_vision=False, use_sbert = False):
 
         super(GraphContextTransformerEncoder, self).__init__()
         self.device = device
 
-        self.text_processor = text_processor
-        self.text_projection = nn.Linear(text_embedding_size, feature_size)
+        if not use_sbert:
+            self.text_processor = text_processor
+        else: self.text_processor = None
+        self.text_projection = nn.Linear(text_embedding_size if not use_sbert else 384, feature_size)
 
         self.image_processor = image_processor
         self.image_projection = nn.Linear(image_embedding_size, feature_size)
+        # encoder_layers = torch.nn.TransformerEncoderLayer(feature_size, heads, feature_size, dropout, batch_first=True)
+        # self.transformer_encoder = torch.nn.TransformerEncoder(encoder_layers, depth)
+        self.use_sbert = use_sbert
 
-        encoder_layers = torch.nn.TransformerEncoderLayer(feature_size, heads, feature_size, dropout, batch_first=True)
-        self.transformer_encoder = torch.nn.TransformerEncoder(encoder_layers, depth)
 
         self.dropout = nn.Dropout(p=dropout)
         self.activation = nn.LeakyReLU()
@@ -188,7 +191,7 @@ class GraphContextTransformerEncoder(nn.Module):
 
         if freeze_encoder:
             print("(script) Freezing encoder layers!")
-            if not train_text:
+            if not train_text and not (self.text_processor is None):
                 for param in self.text_processor.parameters():
                     param.requires_grad = False
             if not train_vision:
@@ -203,17 +206,18 @@ class GraphContextTransformerEncoder(nn.Module):
             projected_image_token = projected_image_token.unsqueeze(0)
 
         batch, seq_size, n_tokens = X['nodes'].shape
-        text_vector = self.dropout(self.activation(self.text_processor(X['nodes'].reshape(batch * seq_size, n_tokens).\
-                                                          to(self.device)).reshape(batch, seq_size, -1)).\
-            transpose(1, 0))
+        if not self.use_sbert:
+            text_vector = self.dropout(self.activation(self.text_processor(X['nodes'].reshape(batch * seq_size, n_tokens).\
+                                                              to(self.device)).reshape(batch, seq_size, -1)).\
+                transpose(1, 0))
 
-        projected_node_tokens = self.text_projection(text_vector)
-
-        # IMPORTANT!! IMAGE NODE MUST BE THE LAST ONE OF THE SEQUENCE TO MATCH THE MASK
-        full_sequence = (torch.cat((projected_node_tokens, projected_image_token), dim = 0).\
-                         transpose(1, 0))
-        output = self.dropout(self.activation(self.transformer_encoder(full_sequence)))
+        else: text_vector = X['sbert_nodes'].to(self.device)
+        # print(self.text_projection(text_vector).shape)
+        # print(X['nodes_mask'].to(self.device)[:, :, None].shape)
+        projected_node_tokens = self.text_projection(text_vector) * X['nodes_mask'].to(self.device)[:, :, None]\
+            .transpose(1, 0)
 
         return {
-            'features': output
+            'features': torch.cat((projected_node_tokens, projected_image_token), dim = 0).transpose(1, 0),
+            'memory_mask': None
         }

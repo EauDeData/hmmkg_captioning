@@ -1,5 +1,6 @@
 import torch
 from torch.nn.utils.rnn import pad_sequence
+from sentence_transformers import SentenceTransformer
 import torch.nn.functional as F
 
 from src.data.data_defaults import MYSELF_TAG
@@ -10,11 +11,16 @@ class Collator:
 
     '''
 
-    def __init__(self, transforms, text_tokenizer, graph_tokenizer, padding_token = 0):
+    def __init__(self, transforms, text_tokenizer, graph_tokenizer, padding_token = 0, use_sbert=True):
         self.transforms = transforms
         self.tokenizer = text_tokenizer
         self.graph_tokenizer = graph_tokenizer
         self.padding_token = 0
+        self.use_sbert = use_sbert
+        if use_sbert:
+            self.sbert = SentenceTransformer('all-MiniLM-L12-v2')
+            self.sbert.to('cpu')
+
         return
 
     @staticmethod
@@ -33,6 +39,8 @@ class Collator:
 
         all_adjs = torch.zeros(len(batch), max_nodes + 1, max_nodes + 1)
         all_nodes = []
+        padding_nodes_mask = torch.ones(len(batch), max_nodes, dtype=torch.float32)
+        sbert_embs = []
 
         for num, sample in enumerate(batch):
             connectivity_matrix = torch.from_numpy(sample['graph_data']['adj'])
@@ -42,12 +50,18 @@ class Collator:
             all_adjs[num, -1, :len(nodes)] = 1
             all_adjs[num, :len(nodes), -1] = 1 # Everything connected to the image but the padding
 
+            nodes_in_caption_no_pad = [node['content'] for node in nodes]
+            nodes_in_caption = nodes_in_caption_no_pad + ['[PADDING]'] * (max_nodes - len(nodes))
+            padding_nodes_mask[num, len(nodes_in_caption_no_pad):] = 0
 
             padded_nodes = self.tokenizer.tokenize(
-                [node['content'] for node in nodes] + ['[PADDING]'] * (max_nodes - len(nodes))
+                nodes_in_caption
             )
 
             all_nodes.append(padded_nodes)
+            if self.use_sbert:
+                sbert_embs.extend([torch.from_numpy(v) for v in self.sbert.encode(nodes_in_caption)])
+
 
         stacked_nodes = torch.stack(all_nodes)
 
@@ -56,13 +70,16 @@ class Collator:
             'images': images,
             'nodes': stacked_nodes,
             'captions': self.tokenizer.tokenize([sample['caption'] for sample in batch]).view\
-            (images.shape[0], -1)
+            (images.shape[0], -1),
+            'nodes_mask': padding_nodes_mask,
+            'sbert_nodes': [] if not len(sbert_embs) else torch.stack(sbert_embs)
 
         }
-        padding_captions = torch.zeros_like(data['captions'], dtype=torch.float32)
+        padding_captions = torch.zeros(data['captions'].shape[0], data['captions'].shape[-1] + 1,
+                                       dtype=torch.float32)
         for num, caption in enumerate(data['captions']):
 
-            padding_start_index = caption.tolist().index(self.tokenizer.eos_token_id) + 1
+            padding_start_index = caption.tolist().index(self.tokenizer.eos_token_id) + 2 # Saltar-se CLS i EOS
             padding_captions[num, padding_start_index:] = float('-inf') # Crec que això ha de ser 0/1
 
         return {**data, **{'captions_padding': padding_captions}}

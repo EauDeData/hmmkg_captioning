@@ -75,12 +75,12 @@ class Collator:
             'sbert_nodes': [] if not len(sbert_embs) else torch.stack(sbert_embs)
 
         }
-        padding_captions = torch.zeros(data['captions'].shape[0], data['captions'].shape[-1] + 1,
+        padding_captions = torch.zeros(data['captions'].shape[0], data['captions'].shape[-1],
                                        dtype=torch.float32)
         for num, caption in enumerate(data['captions']):
 
-            padding_start_index = caption.tolist().index(self.tokenizer.eos_token_id) + 2 # Saltar-se CLS i EOS
-            padding_captions[num, padding_start_index:] = float('-inf') # Crec que això ha de ser 0/1
+            padding_start_index = caption.tolist().index(self.tokenizer.eos_token_id) + 1 # Saltar-se  EOS
+            padding_captions[num, padding_start_index:] = float('-inf') # -inf ignora, 0 deixa passar
 
         return {**data, **{'captions_padding': padding_captions}}
 

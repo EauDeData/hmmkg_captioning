@@ -13,10 +13,11 @@ def eval(dataloader, model, tokenizer, loss_function = torch.nn.CrossEntropyLoss
 
             decoded_out = model.eval_forward(batch)
             #TODO: WARNING!! use eval_forward for fair comparisons
-            output =decoded_out['language_head_output'].transpose(1, 0)
-            ouput_flattened = output.reshape(-1, output.shape[-1])
-            labels = batch['captions'].view(-1).to(output.device)
-            loss = loss_function(ouput_flattened, labels)
+            #output =decoded_out['language_head_output'].transpose(1, 0)
+            #ouput_flattened = output.reshape(-1, output.shape[-1])
+
+            # labels = batch['captions'].view(-1).to(decoded_out['generated_squence'].device)
+            #loss = loss_function(ouput_flattened, labels)
 
             decoded_labels = [tokenizer.decode(row[:1 + row.index(tokenizer.eos_token_id)])
                               for row in batch['captions'].cpu().numpy().tolist()]
@@ -26,7 +27,7 @@ def eval(dataloader, model, tokenizer, loss_function = torch.nn.CrossEntropyLoss
                                                          if tokenizer.eos_token_id in row else -1)])
                               for row in decoded_out['generated_sequence'].cpu().numpy().tolist()]
 
-            avg_loss += loss.item()
+            #avg_loss += loss.item()
             avg_rouge += rouge_score(decoded_prediction, decoded_labels)['rouge1_fmeasure'].item()
             avg_bleu += bleu_scorer(decoded_prediction, [[x] for x in decoded_labels]).item()
 
@@ -34,7 +35,7 @@ def eval(dataloader, model, tokenizer, loss_function = torch.nn.CrossEntropyLoss
                                                                          decoded_labels)]))
 
     res_dict = {
-        'avg_loss': avg_loss/(num + 1),
+        #'avg_loss': avg_loss/(num + 1),
         'avg_rouge': avg_rouge/(num+1),
         'avg_bleu': avg_bleu/(num+1)
     }

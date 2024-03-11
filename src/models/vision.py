@@ -19,6 +19,11 @@ class CaTrBackbone(nn.Module):
     def __init__(self):
         super(CaTrBackbone, self).__init__()
         model = torch.hub.load('saahiluppal/catr', 'v3', pretrained=True)
+        model.load_state_dict(
+            torch.load(
+                '/data/users/amolina/hmmkg/models/checkpoint_logged_last_pretrained.pth' # TODO: This should be an arg
+            )['model']
+        )
         self.backbone = model.backbone
         self.projection = model.input_proj
         self.encoder = model.transformer.encoder

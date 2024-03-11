@@ -6,10 +6,13 @@ def cross_entropy_train_loop(dataloader, optimizer, model, loss_function = torch
     model.train()
     losses = []
     for batch in tqdm(dataloader):
+
         optimizer.zero_grad()
         decoded_out = model.forward(batch)
-        output = decoded_out['language_head_output'].transpose(1, 0)
+        output = decoded_out['language_head_output'].transpose(1, 0) # --> (BS, SEQ, VOCAB)
         ouput_flattened = output.reshape(output.shape[0] * output.shape[1], output.shape[-1])
+
+        # batch['captions']: (BS, SEQ)
         labels = batch['captions'].reshape(output.shape[0] * output.shape[1]).to(output.device)
         loss = loss_function(ouput_flattened, labels)
         loss.backward()
@@ -19,6 +22,7 @@ def cross_entropy_train_loop(dataloader, optimizer, model, loss_function = torch
         optimizer.step()
 
         losses.append(loss.item())
+
         if logger:
             logger.log(
                 {
@@ -35,7 +39,8 @@ def cross_entropy_train_loop(dataloader, optimizer, model, loss_function = torch
 
 
     print('---------train example---------------')
-    decoded_eval = model.eval_forward(batch)
+    with torch.no_grad():
+        decoded_eval = model.eval_forward(batch)
 
     decoded_labels = [tokenizer.decode(row[:1 + row.index(tokenizer.eos_token_id)])
                       for row in batch['captions'].cpu().numpy().tolist()]

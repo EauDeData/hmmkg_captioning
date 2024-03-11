@@ -5,6 +5,7 @@ import fitz  # PyMuPDF
 import cairosvg
 from io import BytesIO
 import defusedxml
+import json
 
 Image.MAX_IMAGE_PIXELS = None # WARNING! Do not run this code without care of the downloaded database
 defusedxml.common._apply_defusing = lambda x: x
@@ -48,3 +49,8 @@ def read_image_any_format(path):
         raise ValueError(f"Unsupported file format: {file_extension}")
 
     return pil_image.convert('RGB')
+
+def read_json(file_name):
+    with open(file_name) as handle:
+        out = json.load(handle)
+    return out

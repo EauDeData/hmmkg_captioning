@@ -7,11 +7,14 @@ import os
 from tqdm import tqdm
 import pickle
 from torch.utils.data import Dataset
+from PIL import Image
 
 from src.data.data_defaults import (PATH_TO_GRAPH_GEXF, PATH_TO_IMAGES_TSV,
                                     IMAGES_PARENT_FOLDER, VALID_CATEGORIES, DATASET_SAVE_PATH_FSTRING, MYSELF_TAG,
                                     EMBEDDING_NODE_CATEGORIES, TEXT_PROCESSOR_NODE_CATEGORIES, NON_ADMITED_FILE_FORMATS)
 from src._io.ioutils import read_image_any_format
+
+
 
 class CaptioningDataset(Dataset):
     def __init__(self, random_walk_leng: int, neighbor_context_window: int,
@@ -212,6 +215,34 @@ class CaptioningDataset(Dataset):
                                            if node[1].get('node_type') == node_type)
                             for node_type in VALID_CATEGORIES + ['text_content', 'image_content']}
         return {**node_type_counts, **{'total': len(data_item)}}
+
+
+class CocoCaption(CaptioningDataset):
+    def __init__(self, root, ann, to_text_nodes=[]):
+
+        self.to_text_nodes = to_text_nodes
+        self.root = root
+        self.annot = [(self._process(val['image_id']), val['caption'])
+                      for val in ann['annotations']]
+    def _process(self, image_id):
+        val = str(image_id).zfill(12)
+        return val + '.jpg'
+
+    def __len__(self):
+        return len(self.annot)
+
+    def __getitem__(self, idx):
+        image_id, caption = self.annot[idx]
+        image = Image.open(os.path.join(self.root, image_id)).convert('RGB')
+        the_void = nx.Graph() # Trick the data collator into thinking this is a KG dataset
+        the_void.add_node(MYSELF_TAG, node_type='special', content=MYSELF_TAG)
+        the_void.add_node('None', node_type='event', content='None')
+        the_void.add_edge(MYSELF_TAG, 'None')
+        graph_data = self.get_graph_data_from_path({'context': the_void},
+                                                   [MYSELF_TAG, 'None'])
+
+        return  {'image': image, 'graph_data': graph_data,
+         'caption': caption}
 
 class EdgePredictionDataset:
     '''

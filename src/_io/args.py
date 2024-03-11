@@ -43,6 +43,8 @@ def parse_arguments():
     parser.add_argument('--use_sbert', action='store_true')
     parser.add_argument('--optimizer', default='RMSprop', type=str,
                         choices=['Adam', 'AdamW', 'RMSprop'])
+    parser.add_argument('--dataset', choices=['hmmkg', 'coco'], default='hmmkg')
+    parser.add_argument('--coco_base_dir', default='/data/users/amolina/coco/')
 
     parser.add_argument('--random_walk_len', type=int, default=12)
     parser.add_argument('--context_neight_depth', type=int, default=4)
@@ -81,7 +83,7 @@ def parse_arguments():
     parser.add_argument('--train_text', action='store_true')
 
 
-    parser.add_argument('--decoder_architecture', type=str, default='tr', choices=['tr', 'lstm'])
+    parser.add_argument('--decoder_architecture', type=str, default='tr', choices=['tr', 'lstm', 'gpt2'])
     parser.add_argument('--decoder_emb_size', type=int, default=512)
     parser.add_argument('--decoder_depth', type=int, default=1)
     parser.add_argument('--decoder_width', type=int, default=8)

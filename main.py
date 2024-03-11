@@ -1,11 +1,12 @@
-from src.data.datasets import CaptioningDataset
+from src.data.datasets import CaptioningDataset, CocoCaption
+from src._io.ioutils import read_json
 from src.data.collator import Collator
 from src.tokenizers.tokenizers import CLIPOriginalTokenizer
 from src.tokenizers.node_and_edges_tokenizers import GraphTokenizer
 from src.data.data_defaults import IMAGENET_MEANS, IMAGENET_STDS
 from src.data.datautils import compute_or_get_vocab_weights
 from src.models.graphs import GraphContextGAT, GraphContextTransformerEncoder
-from src.models.text import CLIPTextEncoder, TransformerDecoder, LSTMDecoderWithAttention
+from src.models.text import CLIPTextEncoder, TransformerDecoder, LSTMDecoderWithAttention, GPT2Decoder
 from src.models.vision import CLIPVisionEncoder, CaTrBackbone
 from src.loops.cross_entropy_train import cross_entropy_train_loop
 from src.loops.eval import eval
@@ -15,6 +16,7 @@ from torch.utils.data import DataLoader
 
 import torch
 import torchvision
+import os
 
 torch.manual_seed(42)
 
@@ -66,7 +68,14 @@ def prepare_models(args):
         decoder = LSTMDecoderWithAttention(graph_processor, args.gat_feature_size, textual_model.model.token_embedding,
                                            args.decoder_emb_size, len(text_tokenizer),
                                            start_token_id=text_tokenizer.bos_token_id,
-                                           max_tokens_during_train=args.text_context_size)
+                                           max_tokens_during_train=args.text_context_size,
+                                           decoder_depth=args.decoder_depth,
+                                           decoder_heads=args.decoder_width)
+    elif args.decoder_architecture=='gpt2':
+        decoder=GPT2Decoder(graph_processor, args.gat_feature_size, args.decoder_emb_size, args.decoder_depth,
+                            len(text_tokenizer), args.decoder_width, textual_model.model.token_embedding,
+                            max_tokens_during_train=args.text_context_size, stop_token=text_tokenizer.eos_token_id,
+                            start_token_id=text_tokenizer.bos_token_id, train_text_emb=False)
 
     else:
         raise NotImplementedError(f"{args.decoder_architecture} is not an implemented decoder.")
@@ -78,18 +87,37 @@ def prepare_models(args):
 
 def prepare_data(args, text_tokenizer, graph_tokenizer):
 
-    dataset_kwargs = {
-        'random_walk_leng': args.random_walk_len,
-        'neighbor_context_window': args.context_neight_depth,
-        'text_processor_nodes': args.nodes_to_text
-    }
     transforms = torchvision.transforms.Compose([torchvision.transforms.Resize((224, 224), ),
                                                  torchvision.transforms.ToTensor(),
                                                  torchvision.transforms.Normalize(IMAGENET_MEANS, IMAGENET_STDS)], )
     collator = Collator(transforms, text_tokenizer, graph_tokenizer, use_sbert=args.use_sbert)
+    if args.dataset == 'coco':
+        # Preparing train data
+        train_dir = os.path.join(args.coco_base_dir, 'train2017')
+        train_file = os.path.join(
+            args.coco_base_dir, 'annotations', 'captions_train2017.json')
+        train_set = CocoCaption(train_dir, read_json(
+            train_file), to_text_nodes=args.nodes_to_text)
 
-    train_set, test_set = (CaptioningDataset(**{**dataset_kwargs, **{'split': 'train'}}),
-                           CaptioningDataset(**{**dataset_kwargs, **{'split': 'test'}}))
+        # Preparing test data
+        val_dir = os.path.join(args.coco_base_dir, 'val2017')
+        val_file = os.path.join(
+            args.coco_base_dir, 'annotations', 'captions_val2017.json')
+        test_set = CocoCaption(val_dir, read_json(
+            val_file), to_text_nodes=args.nodes_to_text)
+
+
+    elif args.dataset=='hmmkg':
+        dataset_kwargs = {
+            'random_walk_leng': args.random_walk_len,
+            'neighbor_context_window': args.context_neight_depth,
+            'text_processor_nodes': args.nodes_to_text
+        }
+
+
+        train_set, test_set = (CaptioningDataset(**{**dataset_kwargs, **{'split': 'train'}}), # TODO: WARNING! THIS IS SWITCHED S ITS EASY TO OVERFIT
+                               CaptioningDataset(**{**dataset_kwargs, **{'split': 'test'}}))
+    else: raise NotImplementedError('Please, provide a valid dataset, mate...')
 
     if args.encoder_approach == 'simple_tr_encoder':
         collate_fn = collator.simple_encoder_with_adj_collate

@@ -218,6 +218,6 @@ class GraphContextTransformerEncoder(nn.Module):
             .transpose(1, 0)
 
         return {
-            'features': torch.cat((projected_node_tokens, projected_image_token), dim = 0).transpose(1, 0),
+            'features': torch.cat((projected_node_tokens, projected_image_token), dim = 0),
             'memory_mask': None
         }

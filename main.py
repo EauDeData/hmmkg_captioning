@@ -1,12 +1,14 @@
+import numpy as np
+
 from src.data.datasets import CaptioningDataset, CocoCaption
 from src._io.ioutils import read_json
 from src.data.collator import Collator
-from src.tokenizers.tokenizers import CLIPOriginalTokenizer
+from src.tokenizers.tokenizers import CLIPOriginalTokenizer, BERTTokenizer
 from src.tokenizers.node_and_edges_tokenizers import GraphTokenizer
 from src.data.data_defaults import IMAGENET_MEANS, IMAGENET_STDS
 from src.data.datautils import compute_or_get_vocab_weights
 from src.models.graphs import GraphContextGAT, GraphContextTransformerEncoder
-from src.models.text import CLIPTextEncoder, TransformerDecoder, LSTMDecoderWithAttention, GPT2Decoder
+from src.models.text import CLIPTextEncoder, TransformerDecoder, LSTMDecoderWithAttention, GPT2Decoder, LSTMTextEncoder
 from src.models.vision import CLIPVisionEncoder, CaTrBackbone
 from src.loops.cross_entropy_train import cross_entropy_train_loop
 from src.loops.eval import eval
@@ -23,7 +25,8 @@ torch.manual_seed(42)
 def get_graph_embedding(args):
     graph_tokenizer, text_tokenizer = get_tokenizers(args)
     return graph_tokenizer, text_tokenizer, torch.nn.Embedding(len(graph_tokenizer.token_dict),
-                                                               args.gat_feature_size // 2)
+                                                               args.gat_feature_size // 2),\
+        torch.nn.Embedding(len(text_tokenizer), args.text_emb_size)
 
 def get_image_encoder(args):
     if args.image_encoder == 'CLIP':
@@ -36,15 +39,20 @@ def get_image_encoder(args):
 def get_text_encoder(args):
     if args.text_encoder == 'CLIP':
         return CLIPTextEncoder(clip_model_tag=args.clip_tag)
+    elif args.text_encoder == 'projection':
+        return torch.nn.Sequential(torch.nn.Linear(args.text_emb_size, args.text_emb_size), torch.nn.ReLU())
+    elif args.text_encoder == 'lstm':
+        return torch.nn.Sequential(LSTMTextEncoder(args.text_emb_size, args.gat_depth), torch.nn.ReLU())
     else:
         raise NotImplementedError(f"{args.text_encoder} is not among implemented image encoders")
 def prepare_models(args):
 
-    graph_tokenizer, text_tokenizer, graph_embedding = get_graph_embedding(args)
+    graph_tokenizer, text_tokenizer, graph_embedding, text_embedding = get_graph_embedding(args)
     visual_model, textual_model = get_image_encoder(args), get_text_encoder(args)
 
     if args.encoder_approach == 'simple_tr_encoder':
-        graph_processor = GraphContextTransformerEncoder(visual_model, args.image_emb_size, textual_model,
+        graph_processor = GraphContextTransformerEncoder(visual_model, args.image_emb_size,
+                                                         torch.nn.Sequential(text_embedding, textual_model),
                                                          args.text_emb_size, args.gat_feature_size, args.gat_depth,
                                                          args.gat_width,device=args.device,
                                                          freeze_encoder=args.freeze_backbone,
@@ -52,6 +60,7 @@ def prepare_models(args):
                                                          )
 
     elif args.encoder_approach == 'gat_encoder':
+
         graph_processor = GraphContextGAT(visual_model, args.image_emb_size, textual_model, args.text_emb_size,
                                           args.gat_feature_size, graph_embedding, args.gat_depth, args.gat_width,
                                           args.gat_in_channels, args.gat_hidden_channels, device=args.device,
@@ -60,7 +69,7 @@ def prepare_models(args):
         raise NotImplementedError(f"Encoder approach {args.encoder_approach} not implemented")
 
     if args.decoder_architecture == 'tr':
-        decoder = TransformerDecoder(graph_processor, args.gat_feature_size, textual_model.model.token_embedding,
+        decoder = TransformerDecoder(graph_processor, args.gat_feature_size, text_embedding,
                                      args.decoder_emb_size, args.decoder_depth, len(text_tokenizer), args.decoder_width,
                                      args.text_context_size, text_tokenizer.eos_token_id, text_tokenizer.bos_token_id,
                                      args.freeze_backbone, args.auto_recurrent_decoder)
@@ -139,9 +148,15 @@ def prepare_data(args, text_tokenizer, graph_tokenizer):
 
 def get_tokenizers(args):
 
+    if args.text_tokenizer=='CLIP':
+        text_tokenizer = CLIPOriginalTokenizer(clip_model_tag=args.clip_tag, context_length=args.text_context_size)
+    elif args.text_tokenizer=='bert':
+        text_tokenizer = BERTTokenizer(context_length=args.text_context_size)
+    else: raise NotImplementedError(f'{args.text_tokenizer} is not an implemented tokenizer')
+
     return (GraphTokenizer(args.path_to_gexf_graph, valid_node_categories=args.valid_categories,
                            checkpoint=args.graph_tokenizer_path),
-            CLIPOriginalTokenizer(clip_model_tag=args.clip_tag, context_length=args.text_context_size))
+            text_tokenizer)
 
 def get_optimizer(args):
     optim_args = {
@@ -174,7 +189,7 @@ def main(args):
 
     else: logger = None
 
-    personal_best = 0
+    personal_best = np.inf
     loss_args = {'ignore_index': 0}
     if args.use_cross_entropy_weights:
         print('(script) Using Cross Entropy weights')
@@ -194,8 +209,9 @@ def main(args):
         test_metrics = eval(test_loader, model, text_tokenizer, logger=logger,
                             loss_function=loss_function)
         print(f"(Script) Tested epoch {epoch} with metrics {test_metrics}")
-        if personal_best <= test_metrics['avg_rouge'] and args.save_checkpoint_to:
-            torch.save(model.state_dict(), args.save_checkpoint_to)
+        # if personal_best <= train_loss and args.save_checkpoint_to: # TODO: Don't take loss as personal best!!
+        torch.save(model.state_dict(), args.save_checkpoint_to)
+        #    personal_best = train_loss
 
 
 if __name__ == '__main__':

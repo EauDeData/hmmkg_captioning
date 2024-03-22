@@ -111,7 +111,8 @@ class CaptioningDataset(Dataset):
     def __len__(self):
         return len(self.data_items)
 
-    def get_graph_data_from_path(self, data_item, random_walk_sequence):
+    @staticmethod
+    def get_graph_data_from_path(data_item, random_walk_sequence, to_text_nodes):
         graph_data = {'to_node_emb': {}, 'to_text_emb': {}, 'edges': [], 'total_edges': []}
         '''
         Cada node:
@@ -142,7 +143,7 @@ class CaptioningDataset(Dataset):
 
                 node_type, content = data_item['context'].nodes[node_src]['node_type'],\
                     data_item['context'].nodes[node_src]['content']
-                toadd_dict = graph_data['to_text_emb'] if node_type in self.to_text_nodes\
+                toadd_dict = graph_data['to_text_emb'] if node_type in to_text_nodes\
                     else graph_data['to_node_emb']
 
                 toadd_dict[node_src] = {
@@ -156,7 +157,7 @@ class CaptioningDataset(Dataset):
 
                 node_type, content = data_item['context'].nodes[node_tgt]['node_type'], \
                     data_item['context'].nodes[node_tgt]['content']
-                toadd_dict = graph_data['to_text_emb'] if node_type in self.to_text_nodes \
+                toadd_dict = graph_data['to_text_emb'] if node_type in to_text_nodes \
                     else graph_data['to_node_emb']
 
                 toadd_dict[node_tgt] = {
@@ -203,7 +204,7 @@ class CaptioningDataset(Dataset):
             data_item['context'],
             sample_size=1, path_length=self.random_walk_leng, weight=None))[0]
 
-        graph_data = self.get_graph_data_from_path(data_item, random_walk_sequence)
+        graph_data = self.get_graph_data_from_path(data_item, random_walk_sequence, self.to_text_nodes)
         graph_data['random_walk_original_seq'] = random_walk_sequence
 
         return {'image': read_image_any_format(data_item['data_path']), 'graph_data': graph_data,
@@ -239,7 +240,7 @@ class CocoCaption(CaptioningDataset):
         the_void.add_node('None', node_type='event', content='None')
         the_void.add_edge(MYSELF_TAG, 'None')
         graph_data = self.get_graph_data_from_path({'context': the_void},
-                                                   [MYSELF_TAG, 'None'])
+                                                   [MYSELF_TAG, 'None'], self.to_text_nodes)
 
         return  {'image': image, 'graph_data': graph_data,
          'caption': caption}

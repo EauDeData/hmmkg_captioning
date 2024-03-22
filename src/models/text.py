@@ -50,6 +50,17 @@ class CLIPTextEncoder(nn.Module):
     def forward(self, batch):
         return self.model.encode_text(batch)
 
+class LSTMTextEncoder(nn.Module):
+    def __init__(self, emb_size, n_layers):
+        super(LSTMTextEncoder, self).__init__()
+
+        self.lstm = nn.LSTM(emb_size, emb_size, num_layers=n_layers, batch_first=True)
+
+    def forward(self, batch):
+
+        output, (_, _) = self.lstm(batch)
+        return output[:, -1, :]
+
 class TransformerTextEncoder(nn.Module):
     def __init__(self, text_embedding):
         # Per ser consistents, hem de tokenitzar fora i fer els embeddings al forward
@@ -64,15 +75,11 @@ class TransformerDecoder(nn.Module):
 
         self.encoder = encoder
         self.memory = torch.nn.Linear(encoder_input_size, decoder_token_size)
-
         self.gelu_fn = torch.nn.GELU()
 
-        self.layer = nn.TransformerDecoderLayer(d_model=decoder_token_size, nhead=decoder_width, batch_first=False)
-        self.decoder = nn.TransformerDecoder(self.layer, num_layers=decoder_depth)
-
+        layer = nn.TransformerDecoderLayer(d_model=decoder_token_size, nhead=decoder_width, batch_first=False)
+        self.decoder = nn.TransformerDecoder(layer, num_layers=decoder_depth)
         self.lm_head = torch.nn.Linear(decoder_token_size, vocab_size)
-
-        self.cls_token = torch.zeros(1, decoder_token_size, device=encoder.device)
 
         self.max_tokens_decode = max_tokens_during_train
         self.vocab_size = vocab_size
@@ -82,29 +89,24 @@ class TransformerDecoder(nn.Module):
 
         self.pos_emb = PositionalEncoding(decoder_token_size, dropout=0)
 
-        self.embedding = text_embedding.cpu()
-        self.template_embedding = torch.nn.Embedding(self.max_tokens_decode, self.d_size)
-
-        if train_text_emb: # Actually it is if freeze, im stupid
-            for param in self.embedding.parameters():
-                param.requires_grad = False
+        self.text_processor = text_embedding.cpu()
+        if train_text_emb:
+            for param in self.text_processor.parameters(): param.requires_grad = False
 
         self.to(self.encoder.device)
-
-        self.forward = self.autorrecurrent_forward if auto_recurrent else self.non_autorecurrent_forward
 
     def eval_forward(self, X):
         encoder_dict_of_features = self.encoder(X)
         encoder_output = encoder_dict_of_features['features']  # Pass the batch X through the encoder
-        memory = self.memory(encoder_output)
+        memory = self.memory(encoder_output).permute(1,0,2)
 
         output = torch.ones(memory.shape[1], self.max_tokens_decode).long().to(memory.device) * self.start_token_id
         logits = torch.zeros(self.max_tokens_decode, memory.shape[1], self.vocab_size, device=memory.device)
         logits[0, :, self.start_token_id] = 1
         for t in range(1, self.max_tokens_decode):
-            tgt_emb = self.embedding(output[:, :t].detach()).transpose(1,0)
-            tgt_mask = torch.nn.Transformer().generate_square_subsequent_mask(
-                t).to(memory.device).transpose(1,0 )
+            tgt_emb = self.pos_emb(self.text_processor(output[:, :t].detach()).transpose(1, 0))
+            tgt_mask = generate_square_subsequent_mask(tgt_emb)
+
 
             decoder_output = self.gelu_fn(self.decoder(tgt=tgt_emb,
                                      memory=memory,
@@ -121,27 +123,24 @@ class TransformerDecoder(nn.Module):
             'hidden_states': None
         }
 
-    def non_autorecurrent_forward(self, X):
+    def forward(self, X):
 
         encoder_dict_of_features = self.encoder(X)
         encoder_output = encoder_dict_of_features['features']  # Pass the batch X through the encoder
-        memory = self.memory(encoder_output)
-        # print('memory:', memory.shape)
+        memory = self.memory(encoder_output).permute(1,0,2)
 
-        sequence = self.embedding(X['captions'].to(memory.device)) # self.template_embedding(torch.arange(self.max_tokens_decode, device=memory.device, dtype=torch.int64)[None]\
-            # .repeat(memory.shape[1], 1)) #
+        captions_templates = X['captions'].to(memory.device)
 
-        positional_sequence = self.pos_emb(sequence.transpose(1,0))
+        sequence = self.text_processor(captions_templates)
+
+        positional_sequence = self.pos_emb(sequence.permute(1,0,2))
         mask = generate_square_subsequent_mask(positional_sequence)
-        # print('input sequence:', positional_sequence.shape)
-        # exit()
-        # print(X['captions_padding'])
-        # exit()
+
         decoded = self.gelu_fn(self.decoder(
             tgt=positional_sequence,
             memory=memory,
             tgt_key_padding_mask=(X['captions_padding'] == float('-inf')).to(memory.device),
-            tgt_mask=mask==float('-inf')
+            tgt_mask=mask,
         ))
 
         # Project the decoder output to vocabulary space

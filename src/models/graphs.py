@@ -179,13 +179,14 @@ class GraphContextTransformerEncoder(nn.Module):
 
         self.image_processor = image_processor
         self.image_projection = nn.Linear(image_embedding_size, feature_size)
-        # encoder_layers = torch.nn.TransformerEncoderLayer(feature_size, heads, feature_size, dropout, batch_first=True)
-        # self.transformer_encoder = torch.nn.TransformerEncoder(encoder_layers, depth)
-        self.use_sbert = use_sbert
 
+        self.use_sbert = use_sbert
 
         self.dropout = nn.Dropout(p=dropout)
         self.activation = nn.LeakyReLU()
+
+        encoder_layer = nn.TransformerEncoderLayer(d_model=feature_size, nhead=4, batch_first=True) # Heads are hardcoded!!
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=depth)
 
         self.to(device)
 
@@ -198,26 +199,27 @@ class GraphContextTransformerEncoder(nn.Module):
                 for param in self.image_processor.parameters():
                     param.requires_grad = False
 
-    def forward(self, X):
+    def forward(self, X, node_max_seq_size = 7, max_output_tokens=-1):
 
-        image_vector = self.activation(self.image_processor(X['images'].to(self.device)))
+        image_vector = self.activation(self.image_processor(X['images'].to(self.device))).permute(1, 0, 2)
         projected_image_token = self.dropout(self.image_projection(image_vector))
         if len(projected_image_token) == 2: # Single feature:
             projected_image_token = projected_image_token.unsqueeze(0)
 
-        batch, seq_size, n_tokens = X['nodes'].shape
         if not self.use_sbert:
-            text_vector = self.dropout(self.activation(self.text_processor(X['nodes'].reshape(batch * seq_size, n_tokens).\
-                                                              to(self.device)).reshape(batch, seq_size, -1)).\
-                transpose(1, 0))
+            nodes = X['nodes'][:, :, :node_max_seq_size].to(self.device)
+            node_batch, node_seq, node_leng = nodes.shape
+            text_vector = self.activation(self.text_processor(nodes.view(node_batch*node_seq, node_leng))).\
+                view(node_batch, node_seq, -1) # Go back to sequence of nodes
 
         else: text_vector = X['sbert_nodes'].to(self.device)
-        # print(self.text_projection(text_vector).shape)
-        # print(X['nodes_mask'].to(self.device)[:, :, None].shape)
-        projected_node_tokens = self.text_projection(text_vector) * X['nodes_mask'].to(self.device)[:, :, None]\
-            .transpose(1, 0)
+
+        projected_node_tokens = self.text_projection(text_vector) * X['nodes_mask'].to(self.device)[:, :, None]
+        concat_features = torch.cat((projected_node_tokens, projected_image_token), dim = 1)
+
+        out_features = self.transformer_encoder(concat_features)
 
         return {
-            'features': torch.cat((projected_node_tokens, projected_image_token), dim = 0),
+            'features': out_features[:, :max_output_tokens],
             'memory_mask': None
         }

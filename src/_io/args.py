@@ -54,6 +54,7 @@ def parse_arguments():
     parser.add_argument('--path_to_images_tsv', type=str, default=PATH_TO_IMAGES_TSV)
     parser.add_argument('--images_parent_folder', type=str, default=IMAGES_PARENT_FOLDER)
     parser.add_argument('--graph_tokenizer_path', type=str, default=GRAPH_TOKENIZER_DEFAULT_PATH)
+    parser.add_argument('--text_tokenizer', choices=['CLIP', 'bert'], default='bert')
 
     parser.add_argument('--non_admited_file_formars', nargs='+', type=str,
                         default=NON_ADMITED_FILE_FORMATS)
@@ -63,7 +64,7 @@ def parse_arguments():
     parser.add_argument('--nodes_to_embedding', nargs='+', type=str, default=EMBEDDING_NODE_CATEGORIES)
 
     parser.add_argument('--image_encoder', type=str, default='CLIP', choices=['CLIP', 'CaTr'])
-    parser.add_argument('--text_encoder', type=str, default='CLIP')
+    parser.add_argument('--text_encoder', type=str, default='CLIP', choices=['CLIP', 'projection', 'lstm'])
     parser.add_argument('--text_context_size', type=int, default=DEFAULT_TEXT_TOKENIZER_CONTEXT_LENGTH)
 
     parser.add_argument('--clip_tag', type=str, default=CLIP_MODEL_TAG)

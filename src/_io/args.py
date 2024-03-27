@@ -43,8 +43,11 @@ def parse_arguments():
     parser.add_argument('--use_sbert', action='store_true')
     parser.add_argument('--optimizer', default='RMSprop', type=str,
                         choices=['Adam', 'AdamW', 'RMSprop'])
-    parser.add_argument('--dataset', choices=['hmmkg', 'coco'], default='hmmkg')
+    parser.add_argument('--dataset', choices=['hmmkg', 'coco', 'gcc'], default='hmmkg')
+
     parser.add_argument('--coco_base_dir', default='/data/users/amolina/coco/')
+    parser.add_argument('--gcc_base_dir',
+                        default='/data/users/amolina/ccaptions/DownloadConceptualCaptions')
 
     parser.add_argument('--random_walk_len', type=int, default=12)
     parser.add_argument('--context_neight_depth', type=int, default=4)

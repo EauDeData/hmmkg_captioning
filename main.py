@@ -1,6 +1,6 @@
 import numpy as np
 
-from src.data.datasets import CaptioningDataset, CocoCaption
+from src.data.datasets import CaptioningDataset, CocoCaption, GCCaptions
 from src._io.ioutils import read_json
 from src.data.collator import Collator
 from src.tokenizers.tokenizers import CLIPOriginalTokenizer, BERTTokenizer
@@ -115,6 +115,9 @@ def prepare_data(args, text_tokenizer, graph_tokenizer):
         test_set = CocoCaption(val_dir, read_json(
             val_file), to_text_nodes=args.nodes_to_text)
 
+    elif args.dataset == 'gcc':
+        train_set = GCCaptions(args.gcc_base_dir, 'training', args.nodes_to_text)
+        test_set = GCCaptions(args.gcc_base_dir, 'validation', args.nodes_to_text)
 
     elif args.dataset=='hmmkg':
         dataset_kwargs = {

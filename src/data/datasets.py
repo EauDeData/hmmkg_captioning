@@ -1,12 +1,14 @@
 import random
-
+import io
 import networkx as nx
 import numpy as np
 import pandas as pd
+import cv2
 import os
 from tqdm import tqdm
 import pickle
 from torch.utils.data import Dataset
+from multiprocessing import Pool, Manager
 from PIL import Image
 
 from src.data.data_defaults import (PATH_TO_GRAPH_GEXF, PATH_TO_IMAGES_TSV,
@@ -15,14 +17,13 @@ from src.data.data_defaults import (PATH_TO_GRAPH_GEXF, PATH_TO_IMAGES_TSV,
 from src._io.ioutils import read_image_any_format
 
 
-
 class CaptioningDataset(Dataset):
     def __init__(self, random_walk_leng: int, neighbor_context_window: int,
                  path_to_gexf_context: str = PATH_TO_GRAPH_GEXF,
                  path_to_images_csv: str = PATH_TO_IMAGES_TSV,
                  images_parent_folder: str = IMAGES_PARENT_FOLDER, split: str = 'test',
                  dataset_checkpoint: str = DATASET_SAVE_PATH_FSTRING,
-                 text_processor_nodes = TEXT_PROCESSOR_NODE_CATEGORIES, include_quotes: bool = False):
+                 text_processor_nodes=TEXT_PROCESSOR_NODE_CATEGORIES, include_quotes: bool = False):
         self.random_walk_leng = random_walk_leng
         self.to_text_nodes = text_processor_nodes
         dataset_checkpoint_name = f'{split}_{neighbor_context_window}_radius_context_include_quotes_{include_quotes}'
@@ -42,9 +43,10 @@ class CaptioningDataset(Dataset):
                                               if node[1].get('node_type') == 'text_content' and
                                               all(self.ugraph.nodes[neighbor].get('node_type') != 'image_content'
                                                   for neighbor in
-                                                  self.ugraph.neighbors(node[0]))] # This way we avoid
-                                            # captions and get quotes
-        else: text_nodes_not_linked_to_image = []
+                                                  self.ugraph.neighbors(node[0]))]  # This way we avoid
+            # captions and get quotes
+        else:
+            text_nodes_not_linked_to_image = []
 
         # Create a subgraph with filtered nodes
         self.clean_graph = self.graph.subgraph(dict(filtered_nodes + text_nodes_not_linked_to_image))
@@ -55,7 +57,7 @@ class CaptioningDataset(Dataset):
         for idx, (node_id, path, available, train, url) in tqdm(enumerate(
                 zip(
                     *[self.images[column] for column in ['image_node_title', 'subpath', 'missing', 'train', 'url']]
-                    )
+                )
         ), total=len(self.images), desc=f"Getting {split} dataset ready for you!"):
 
             item = {
@@ -66,14 +68,15 @@ class CaptioningDataset(Dataset):
                 ),
                 'url': url,
                 'captions': set([data['content'] for data in
-                             [self.graph.nodes[x] for x in self.graph.neighbors(node_id)] if data['node_type'] == 'text_content'])
+                                 [self.graph.nodes[x] for x in self.graph.neighbors(node_id)] if
+                                 data['node_type'] == 'text_content'])
                 # Navigate the graph to add all related "has caption" edges.
                 # Remove then such captions to avoid leaks
             }
 
-            if not available\
-                    or ('train' if train else 'test') != split\
-                    or path.split('.')[-1] in NON_ADMITED_FILE_FORMATS\
+            if not available \
+                    or ('train' if train else 'test') != split \
+                    or path.split('.')[-1] in NON_ADMITED_FILE_FORMATS \
                     or not len(item['captions']):
                 continue
 
@@ -83,10 +86,10 @@ class CaptioningDataset(Dataset):
                                         for neighbor in self.ugraph.neighbors(node_id)
                                         if self.ugraph[node_id][neighbor].get('edge_type') in ['has_media', 'in_media']]
 
-                new_graph = nx.DiGraph() # In order to create a fully conected graph of the "found" image
+                new_graph = nx.DiGraph()  # In order to create a fully conected graph of the "found" image
                 for neighbor in self.ugraph.neighbors(node_id):
                     edge_type = self.ugraph[node_id][neighbor].get('edge_type',
-                                                        'default_type')  # Get edge_type, use 'default_type' if not present
+                                                                   'default_type')  # Get edge_type, use 'default_type' if not present
 
                     if edge_type in ['has_media', 'in_media']:
                         new_graph.add_node(MYSELF_TAG, node_type='special', content=MYSELF_TAG)
@@ -97,11 +100,13 @@ class CaptioningDataset(Dataset):
                     C_graph = nx.compose(C_graph, contexts)
                 item['context'] = C_graph.to_undirected()
                 item['has_media_origin'] = [neighbor
-                                        for neighbor in self.ugraph.neighbors(node_id)
-                                        if self.ugraph[node_id][neighbor].get('edge_type') in ['has_media', 'in_media']]
+                                            for neighbor in self.ugraph.neighbors(node_id)
+                                            if self.ugraph[node_id][neighbor].get('edge_type') in ['has_media',
+                                                                                                   'in_media']]
 
 
-            else: item['context']: None
+            else:
+                item['context']: None
             self.data_items.append(item)
 
         if not dataset_checkpoint is None:
@@ -140,10 +145,9 @@ class CaptioningDataset(Dataset):
                 graph_data['total_edges'].append(edge)
 
             if not node_src in added_nodes:
-
-                node_type, content = data_item['context'].nodes[node_src]['node_type'],\
+                node_type, content = data_item['context'].nodes[node_src]['node_type'], \
                     data_item['context'].nodes[node_src]['content']
-                toadd_dict = graph_data['to_text_emb'] if node_type in to_text_nodes\
+                toadd_dict = graph_data['to_text_emb'] if node_type in to_text_nodes \
                     else graph_data['to_node_emb']
 
                 toadd_dict[node_src] = {
@@ -154,7 +158,6 @@ class CaptioningDataset(Dataset):
                 added_nodes.append(node_src)
 
             if not node_tgt in added_nodes:
-
                 node_type, content = data_item['context'].nodes[node_tgt]['node_type'], \
                     data_item['context'].nodes[node_tgt]['content']
                 toadd_dict = graph_data['to_text_emb'] if node_type in to_text_nodes \
@@ -176,11 +179,11 @@ class CaptioningDataset(Dataset):
                 'edge_type': edge_type
             },
                 {
-                    'global_index_src':  node_tgt_data['global_idx'],
+                    'global_index_src': node_tgt_data['global_idx'],
                     'global_index_dst': node_src_data['global_idx'],
                     'edge_type': edge_type
                 },
-             ])
+            ])
 
         nodes = {**graph_data['to_node_emb'], **graph_data['to_text_emb']}
         num_nodes = len(nodes)
@@ -220,11 +223,11 @@ class CaptioningDataset(Dataset):
 
 class CocoCaption(CaptioningDataset):
     def __init__(self, root, ann, to_text_nodes=[]):
-
         self.to_text_nodes = to_text_nodes
         self.root = root
         self.annot = [(self._process(val['image_id']), val['caption'])
                       for val in ann['annotations']]
+
     def _process(self, image_id):
         val = str(image_id).zfill(12)
         return val + '.jpg'
@@ -235,15 +238,73 @@ class CocoCaption(CaptioningDataset):
     def __getitem__(self, idx):
         image_id, caption = self.annot[idx]
         image = Image.open(os.path.join(self.root, image_id)).convert('RGB')
-        the_void = nx.Graph() # Trick the data collator into thinking this is a KG dataset
+        the_void = nx.Graph()  # Trick the data collator into thinking this is a KG dataset
         the_void.add_node(MYSELF_TAG, node_type='special', content=MYSELF_TAG)
         the_void.add_node('None', node_type='event', content='None')
         the_void.add_edge(MYSELF_TAG, 'None')
         graph_data = self.get_graph_data_from_path({'context': the_void},
                                                    [MYSELF_TAG, 'None'], self.to_text_nodes)
 
-        return  {'image': image, 'graph_data': graph_data,
-         'caption': caption}
+        return {'image': image, 'graph_data': graph_data,
+                'caption': caption}
+
+
+class GCCaptions(CaptioningDataset):
+    def __init__(self, root, split='training', to_text_nodes=[]):
+
+        self.to_text_nodes = to_text_nodes
+        self.root = root
+
+        df_path = 'Validation_GCC-1.1.0-Validation.tsv' if split == 'validation' else 'Train_GCC-training.tsv'
+        df_report_path = 'downloaded_validation_report.tsv' if split == 'validation' else 'downloaded_training_report.tsv'
+
+        df = pd.read_csv(os.path.join(root, df_path), delimiter='\t', names=['caption', 'url'])
+        df_report = pd.read_csv(os.path.join(root, df_report_path), delimiter='\t',
+                                names=['path', 'split', 'format', 'what', 'err_code', 'url'])
+
+        self.annot = Manager().list()
+        self.parallel_process(df, df_report, split)
+        self.annot = list(self.annot)
+
+        print(f'File processed with length, {len(self)}')
+    def __len__(self):
+        return len(self.annot)
+    def parallel_process(self, df, df_report, split):
+        root = self.root  # Assuming self.root is defined somewhere in your class
+        tasks = []
+        for row_number, (caption, path, mimetype) in tqdm(
+                enumerate(
+                    zip(df['caption'], df_report['path'], df_report['format'])),
+                total=len(df_report), desc=f"Processing {split} split from GCCaptions"):
+            tasks.append((row_number, caption, path, mimetype, root, self.annot))
+
+        # Adapt the number of process to the most convenient
+        with Pool(64) as pool:
+            pool.map(self.process_image, tasks)
+    @staticmethod
+    def process_image(args):
+        row_number, caption, path, mimetype, root, annot_shared = args
+        if path == path and mimetype.lower() in [t.lower() for t in ['image/jpeg', 'image/jpg', 'image/png',
+                                                                     'jpg', 'JPEG', 'image/jpeg, image/jpeg']]:
+            try:
+                _ = Image.open(os.path.join(root, path)).convert('RGB')
+                annot_shared.append((path, caption))
+            except OSError:
+                pass
+    def __getitem__(self, idx):
+        image_id, caption = self.annot[idx]
+        file = os.path.join(self.root, image_id)
+        image = Image.open(file).convert('RGB')
+        the_void = nx.Graph()  # Trick the data collator into thinking this is a KG dataset
+        the_void.add_node(MYSELF_TAG, node_type='special', content=MYSELF_TAG)
+        the_void.add_node('None', node_type='event', content='None')
+        the_void.add_edge(MYSELF_TAG, 'None')
+        graph_data = self.get_graph_data_from_path({'context': the_void},
+                                                   [MYSELF_TAG, 'None'], self.to_text_nodes)
+
+        return {'image': image, 'graph_data': graph_data,
+                'caption': caption}
+
 
 class EdgePredictionDataset:
     '''

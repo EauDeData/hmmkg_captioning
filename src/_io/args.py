@@ -23,7 +23,7 @@ def assert_preconditions(args):
         assert args.decoder_emb_size==512, 'CLIP projects text to 512 features, so does decoder'
 
     if args.image_encoder == 'CLIP':
-        assert args.image_emb_size == 512, "CLIP uses 512 embedding size (image)"
+        assert args.image_emb_size == 768, "CLIP uses 512 embedding size (image)"
     elif args.image_encoder == 'CaTr':
         assert args.image_emb_size == 256
 

@@ -116,101 +116,16 @@ class CaptioningDataset(Dataset):
     def __len__(self):
         return len(self.data_items)
 
-    @staticmethod
-    def get_graph_data_from_path(data_item, random_walk_sequence, to_text_nodes):
-        graph_data = {'to_node_emb': {}, 'to_text_emb': {}, 'edges': [], 'total_edges': []}
-        '''
-        Cada node:
-            node_id: {
-            'global_index': N,
-            'node_type': str,
-            'node_content': str
-            }
-
-        Cada edge:
-            {
-            global_index_src: Ni,
-            global_index_dst: Nj,
-            edge_type: str   
-            }
-        '''
-
-        added_nodes = []
-        for id_loop, (node_src, node_tgt) in enumerate(zip(random_walk_sequence, random_walk_sequence[1:])):
-
-            edge = (node_src, node_tgt)
-            if edge in graph_data['total_edges'] or edge[::-1] in graph_data['total_edges']:
-                continue
-            else:
-                graph_data['total_edges'].append(edge)
-
-            if not node_src in added_nodes:
-                node_type, content = data_item['context'].nodes[node_src]['node_type'], \
-                    data_item['context'].nodes[node_src]['content']
-                toadd_dict = graph_data['to_text_emb'] if node_type in to_text_nodes \
-                    else graph_data['to_node_emb']
-
-                toadd_dict[node_src] = {
-                    'global_idx': len(added_nodes),
-                    'node_type': node_type,
-                    'content': content
-                }
-                added_nodes.append(node_src)
-
-            if not node_tgt in added_nodes:
-                node_type, content = data_item['context'].nodes[node_tgt]['node_type'], \
-                    data_item['context'].nodes[node_tgt]['content']
-                toadd_dict = graph_data['to_text_emb'] if node_type in to_text_nodes \
-                    else graph_data['to_node_emb']
-
-                toadd_dict[node_tgt] = {
-                    'global_idx': len(added_nodes),
-                    'node_type': node_type,
-                    'content': content
-                }
-                added_nodes.append(node_tgt)
-
-            all_nodes_v2 = {**graph_data['to_node_emb'], **graph_data['to_text_emb']}
-            node_src_data, node_tgt_data = all_nodes_v2[node_src], all_nodes_v2[node_tgt]
-            edge_type = data_item['context'][node_src][node_tgt].get('edge_type')
-            graph_data['edges'].extend([{
-                'global_index_src': node_src_data['global_idx'],
-                'global_index_dst': node_tgt_data['global_idx'],
-                'edge_type': edge_type
-            },
-                {
-                    'global_index_src': node_tgt_data['global_idx'],
-                    'global_index_dst': node_src_data['global_idx'],
-                    'edge_type': edge_type
-                },
-            ])
-
-        nodes = {**graph_data['to_node_emb'], **graph_data['to_text_emb']}
-        num_nodes = len(nodes)
-        sorted_nodes = sorted(nodes.values(), key=lambda x: nodes[x['content']]['global_idx'])
-
-        adj_matrix = np.eye(num_nodes, num_nodes)
-
-        for src, dst in [(edge['global_index_src'], edge['global_index_dst']) for edge in graph_data['edges']]:
-            adj_matrix[src, dst] = 1
-
-        graph_data['adj'] = adj_matrix
-        graph_data['listed_nodes'] = sorted_nodes
-
-        return graph_data
-
     def __getitem__(self, idx):
 
         # Aqui agafarem el graph i farem un random walk
         data_item = self.data_items[idx]
-        random_walk_sequence = list(nx.generate_random_paths(
+        random_walk_sequence = set(list(nx.generate_random_paths(
             data_item['context'],
-            sample_size=1, path_length=self.random_walk_leng, weight=None))[0]
+            sample_size=1, path_length=self.random_walk_leng, weight=None))[0])
 
-        graph_data = self.get_graph_data_from_path(data_item, random_walk_sequence, self.to_text_nodes)
-        graph_data['random_walk_original_seq'] = random_walk_sequence
-
-        return {'image': read_image_any_format(data_item['data_path']), 'graph_data': graph_data,
+        return {'image': read_image_any_format(data_item['data_path']),
+                'graph_data': nx.subgraph(data_item['context'], random_walk_sequence),
                 'caption': random.choice(list(data_item['captions']))}
 
     def get_context_stats(self, idx):
@@ -240,12 +155,10 @@ class CocoCaption(CaptioningDataset):
         image = Image.open(os.path.join(self.root, image_id)).convert('RGB')
         the_void = nx.Graph()  # Trick the data collator into thinking this is a KG dataset
         the_void.add_node(MYSELF_TAG, node_type='special', content=MYSELF_TAG)
-        the_void.add_node('None', node_type='event', content='None')
-        the_void.add_edge(MYSELF_TAG, 'None')
-        graph_data = self.get_graph_data_from_path({'context': the_void},
-                                                   [MYSELF_TAG, 'None'], self.to_text_nodes)
+        the_void.add_node('1936', node_type='event', content='None')
+        the_void.add_edge(MYSELF_TAG, '1936', edge_type='in_media')
 
-        return {'image': image, 'graph_data': graph_data,
+        return {'image': image, 'graph_data': the_void,
                 'caption': caption}
 
 
@@ -297,12 +210,10 @@ class GCCaptions(CaptioningDataset):
         image = Image.open(file).convert('RGB')
         the_void = nx.Graph()  # Trick the data collator into thinking this is a KG dataset
         the_void.add_node(MYSELF_TAG, node_type='special', content=MYSELF_TAG)
-        the_void.add_node('None', node_type='event', content='None')
-        the_void.add_edge(MYSELF_TAG, 'None')
-        graph_data = self.get_graph_data_from_path({'context': the_void},
-                                                   [MYSELF_TAG, 'None'], self.to_text_nodes)
+        the_void.add_node('1936', node_type='event', content='None')
+        the_void.add_edge(MYSELF_TAG, '1936', edge_type='in_media')
 
-        return {'image': image, 'graph_data': graph_data,
+        return {'image': image, 'graph_data': the_void,
                 'caption': caption}
 
 

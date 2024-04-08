@@ -2,9 +2,9 @@ VALID_CATEGORIES = ['person', 'institution', 'location', 'participation', 'role'
 # And we will need to add images as processed by text processor
 MYSELF_TAG = '[MYSELF_NODE]'
 PADDING_TAG = '[GRAPH_PADDING]'
-TEXT_PROCESSOR_NODE_CATEGORIES = ['participation', 'role', 'event', 'date'] # TODO: In the future
+TEXT_PROCESSOR_NODE_CATEGORIES = [] # TODO: In the future
 # "text content will be here as well, no?
-EMBEDDING_NODE_CATEGORIES = ['person', 'institution', 'location', 'event_side'] + ['special']
+EMBEDDING_NODE_CATEGORIES = VALID_CATEGORIES + ['special']
 
 PATH_TO_GRAPH_GEXF = '/data/users/amolina/hmmkg/knowledge_uncurated_merged_graph.gexf'
 PATH_TO_IMAGES_TSV = '/data/users/amolina/hmmkg/images_split.tsv'

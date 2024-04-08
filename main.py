@@ -25,7 +25,7 @@ torch.manual_seed(42)
 def get_graph_embedding(args):
     graph_tokenizer, text_tokenizer = get_tokenizers(args)
     return graph_tokenizer, text_tokenizer, torch.nn.Embedding(len(graph_tokenizer.token_dict),
-                                                               args.gat_feature_size // 2),\
+                                                               args.gat_feature_size),\
         torch.nn.Embedding(len(text_tokenizer), args.text_emb_size)
 
 def get_image_encoder(args):

@@ -18,29 +18,24 @@ class GraphContextGAT(nn.Module):
         super(GraphContextGAT, self).__init__()
         self.device = device
 
-        self.text_processor = text_processor
-        self.text_projection = nn.Linear(text_embedding_size, feature_size // 2)
+        self.image_processor = image_processor
 
-        self.image_processor = image_processor # Això podrà ser None quan estem fent caption-only perque
-        # mai veurem altres imatges entrenant sols aa captioning, però ho implementem tot per ser consistents
-        # quan incorporem el link prediction
-        self.image_projection = nn.Linear(image_embedding_size + feature_size//2, feature_size)
-        self.image_token = nn.Parameter(data=torch.rand(1, feature_size // 2))
-
-        self.graph_elements_embedding = graph_embedding # This will contain all the embeddings,
-        # the batch already gives you what is what, so all goes through this
-        # i.e. from 0-X nodes, x-Y categories... etc
-        # A node embedding will be CONCAT([node_features], [category_features]) with small category features
-        # Therefore the feature_size = |node_features|+|category_features|
-        self.edge_super_projection = nn.Linear(feature_size // 2, feature_size)
+        self.graph_elements_embedding = graph_embedding
         self.feature_size = feature_size
-
-        self.input_to_convolution_projection = torch.nn.Linear(feature_size, in_channels)
-
         self.depth = depth
 
         # FOR LOOP WITH EVERY LAYER
-        self.gat_backbone = GAT(in_channels, hidden_channels, depth, feature_size, dropout=dropout, heads=heads)
+        gat_feature = feature_size + feature_size // 2
+        self.gat_backbone = GAT(gat_feature, hidden_channels, depth, feature_size, dropout=dropout, heads=heads)
+
+        self.image_projection = nn.Linear(image_embedding_size, feature_size)
+
+        # We don't need half the token dedicated to node type
+        self.downscale_node_types = nn.Linear(feature_size, gat_feature - feature_size)
+
+        # Edges are not concatenated with anything else, so they need to do this "fake" concatenation
+        self.upscale_edge_features = nn.Linear(feature_size, gat_feature)
+
 
         self.dropout = nn.Dropout(p=dropout)
         self.activation = nn.LeakyReLU()
@@ -48,119 +43,41 @@ class GraphContextGAT(nn.Module):
         self.to(device)
         if freeze_encoder:
             print("(script) Freezing encoder layers!")
-            for param in self.text_processor.parameters():
-                param.requires_grad = False
-
             for param in self.image_processor.parameters():
                 param.requires_grad = False
 
-    def forward_graph_data(self, data):
+    def forward(self, batch):
 
-        batch_size = data['images'].shape[0]
+        node_attributes = self.graph_elements_embedding(batch['graph']['nodes'].to(self.device))
+        node_type_features = self.downscale_node_types(
+            self.graph_elements_embedding(batch['graph']['node_types'].to(self.device))
+        )
 
-        max_nodes_per_batch_id = [
-                            len(text_nodes + emb_nodes) for text_nodes, emb_nodes in\
-                                  zip(data['graph']['node_txts']['idxs'], data['graph']['node_embs']['idxs'])
-                                  ]
+        node_attributes_with_types = torch.hstack((node_attributes, node_type_features))
+        edge_attributes = self.upscale_edge_features(
+            self.graph_elements_embedding(batch['graph']['edge_types'].to(self.device))
+        )
 
-        padding_idx = total_nodes = sum(max_nodes_per_batch_id)
-        nodes_emb = torch.zeros((total_nodes + 1, self.feature_size)).to(self.device) # Last node is padding
+        processed_graph_data = self.gat_backbone(x=node_attributes_with_types,
+                                 edge_attr=edge_attributes,
+                                 edge_index=torch.tensor(batch['graph']['edges'],
+                                                         device=self.device,
+                                                         dtype=torch.int64).T)
 
-        per_batch_node_indices = [[] for _ in range(batch_size)]
+        image_tokens = self.image_projection(self.activation(
+            self.image_processor(batch['images'].to(self.device))
+        )) # (SEQ, Batch, FEATURE_SIZE)
 
-        for batch_id, (nodes, category, index) in enumerate(zip(data['graph']['node_embs']['tokens'],\
-                                                         data['graph']['node_embs']['categories'],\
-                                                                data['graph']['node_embs']['idxs'])):
+        node_tokens = processed_graph_data[batch['graph']['batched_nodes']] # (Batch, SEQ, FEATURE_SIZE)
 
-            if not len(nodes): continue
-            node_idxs, categories_idxs = torch.tensor(nodes, device=self.device),\
-                torch.tensor(category, device=self.device)
-
-
-            category_embedding = self.graph_elements_embedding(categories_idxs.int())
-            node_embedding = self.graph_elements_embedding(node_idxs.int())
-
-            node_features = torch.cat((category_embedding, node_embedding), dim=1)
-
-            offset_indices = [sum(max_nodes_per_batch_id[:batch_id]) + x for x in index]
-            nodes_emb[offset_indices, :] = node_features
-            per_batch_node_indices[batch_id].extend(offset_indices)
-
-        for batch_id, (nodes, category, index) in enumerate(zip(data['graph']['node_txts']['tokens'],\
-                                                         data['graph']['node_txts']['categories'],\
-                                                                data['graph']['node_txts']['idxs'])):
-            # Now for text, extract it with text processor
-            if not len(nodes): continue
-
-            categories_idxs = torch.tensor(category, device=self.device) # Sols category,\
-            # la frase ja ve ben formatejada del collator
-
-            category_embedding = self.graph_elements_embedding(categories_idxs.int())
-            text_nodes = torch.stack(nodes).to(self.device)
-
-            batch_shape = text_nodes.shape[0]
-            node_embedding = self.text_processor(text_nodes.view(batch_shape, -1).int())
-            projected_text = self.text_projection(node_embedding)
-
-            node_features = torch.cat((category_embedding, projected_text), dim=1)
-
-            offset_indices = [sum(max_nodes_per_batch_id[:batch_id]) + x for x in index]
-            nodes_emb[offset_indices, :] = node_features
-            per_batch_node_indices[batch_id].extend(offset_indices)
-
-        # Lastly, the edges embedding, consider using the padding node (last node in the matrix we've created)
-        num_edges = sum(len(element) for element in data['graph']['edges']['idxs_coo'])
-
-        connectivity_matrix = torch.zeros((2, num_edges)) - 1
-        edge_features = torch.zeros((num_edges, self.feature_size), device=self.device)
-
-        num_features_added=0
-        for batch_id, (nodes, category) in enumerate(zip(data['graph']['edges']['idxs_coo'],\
-                                                         data['graph']['edges']['categories'])):
-
-
-            connectivity_matrix[:, num_features_added:num_features_added+len(nodes)] = torch.tensor(nodes).T +\
-                                                                 sum(max_nodes_per_batch_id[:batch_id])
-
-            edge_features[num_features_added:num_features_added+len(category), :] = self.edge_super_projection(
-                self.graph_elements_embedding(
-                    torch.tensor(category).to(self.device)
-                )
-            )
-            num_features_added += len(category)
-
-        edge_projected_features = self.input_to_convolution_projection(self.activation(self.dropout(edge_features)))
-        node_projected_features = self.input_to_convolution_projection(self.activation(self.dropout(nodes_emb)))
-        max_number_of_nodes = max(len(x) for x in per_batch_node_indices)
+        # Transpose node_tokens to have the same shape as image_tokens for concatenation
+        node_tokens = node_tokens.transpose(0, 1)  # Shape: (SEQ, Batch, FEATURE_SIZE)
+        final_vector = torch.cat((image_tokens, node_tokens), dim=0)  # Shape: (2*Seq, Batch, FEATURE_SIZE)
 
         return {
-            'edge_index': connectivity_matrix.to(torch.int64).to(self.device),
-            'edge_attr': edge_projected_features,
-            'node_attr':  node_projected_features,
-            'batch_size': batch_size,
-            'node_features_batched_offsets': [inds + [padding_idx] * (max_number_of_nodes - len(inds)) for inds
-                                              in per_batch_node_indices]
-
+            'features':  final_vector.transpose(0, 1),  # Shape: (Batch, 2*Seq, FEATURE_SIZE)
+            'memory_mask': None
         }
-    def forward(self, batch):
-        graph_data = self.forward_graph_data(batch)
-
-        data = self.gat_backbone(x=graph_data['node_attr'],
-                                 edge_attr=graph_data['edge_attr'],
-                                 edge_index=graph_data['edge_index'])
-
-        image_embedding = self.image_processor(batch['images'].to(self.device))
-        concatenated_tensor = torch.cat((self.image_token.expand(image_embedding.shape[0], -1),
-                                         image_embedding), dim=1)
-        image_representation = self.image_projection(concatenated_tensor).unsqueeze(1)
-
-        sequences = torch.nn.functional.embedding(torch.tensor(graph_data['node_features_batched_offsets'],
-                                                               device=self.device), data)
-        features = torch.cat((sequences, image_representation), dim=1)
-
-        return {'features': features}
-
-
 
 class GraphContextTransformerEncoder(nn.Module):
     def __init__(self, image_processor: nn.Module, image_embedding_size: int,

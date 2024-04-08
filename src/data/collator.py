@@ -1,9 +1,10 @@
+import networkx as nx
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from sentence_transformers import SentenceTransformer
 import torch.nn.functional as F
 
-from src.data.data_defaults import MYSELF_TAG
+from src.data.data_defaults import MYSELF_TAG, PADDING_TAG
 class Collator:
     '''
 
@@ -89,70 +90,54 @@ class Collator:
         ## IMAGE AND CAPTION COLLATED
         images = torch.stack([self.transforms(sample['image']) for sample in batch])
 
-        # adj_matrix = torch.stack([torch.from_numpy(sample['graph_data']['adj']) for sample in batch])
-
-        tokenized_captions = torch.stack([self.tokenizer.tokenize(sample['caption']) for sample in batch]).view\
+        tokenized_captions = torch.stack([self.tokenizer.tokenize([sample['caption']]) for sample in batch]).view\
             (images.shape[0], -1) # (BATCH_SIZE, context_length)
 
-        ## NODE EMBEDDINGS COLLATED
-        node_embs_idxs = [[sample['graph_data']['to_node_emb'][idx]['global_idx']
-                            for idx in sample['graph_data']['to_node_emb']]
-                           for sample in batch]
+        padding_captions = torch.zeros(tokenized_captions.shape[0], tokenized_captions.shape[-1],
+                                       dtype=torch.float32)
 
-        node_embs_tokenized = [[self.graph_tokenizer.token_dict[idx]
-                            for idx in sample['graph_data']['to_node_emb']]
-                           for sample in batch]
+        graphs = [g['graph_data'] for g in batch]
+        merged_graph = nx.compose_all(graphs)
 
-        node_embs_categories_tokenized = [[self.graph_tokenizer.token_dict[
-                                                sample['graph_data']['to_node_emb'][idx]['node_type']
-                                            ]
-                            for idx in sample['graph_data']['to_node_emb']]
-                           for sample in batch]
+        merged_nodes = list(merged_graph.nodes())
+        merged_node_types = [merged_graph.nodes[node]['node_type'] for node in merged_nodes]
+        merged_edges = ([(merged_nodes.index(edge[0]), merged_nodes.index(edge[1])) for edge in merged_graph.edges()] +
+                        [(merged_nodes.index(edge[1]), merged_nodes.index(edge[0])) for edge in merged_graph.edges()])
 
-        ## NODE-TEXT EMBEDDINGS COLLATED
-        node_txt_idxs = [[sample['graph_data']['to_text_emb'][idx]['global_idx']
-                           for idx in sample['graph_data']['to_text_emb']]
-                          for sample in batch]
+        merged_edge_types = [merged_graph.edges[edge]['edge_type'] for edge in merged_graph.edges()] * 2
 
-        node_txt_tokenized = [[self.tokenizer.tokenize(
-                                                sample['graph_data']['to_text_emb'][idx]['content']
-                            )
-                            for idx in sample['graph_data']['to_text_emb']]
-                           for sample in batch] # WARNING: Padding depends on the tokenizer, so text is already padded
+        per_image_nodes = [[] for _ in batch]
 
-        node_txt_categories_tokenized = [[self.graph_tokenizer.token_dict[
-                                                sample['graph_data']['to_text_emb'][idx]['node_type']
-                                            ]
-                            for idx in sample['graph_data']['to_text_emb']]
-                           for sample in batch]
+        for num, (caption, graph) in enumerate(zip(tokenized_captions,graphs)):
 
-        ## EDGES COLLATED
+            padding_start_index = caption.tolist().index(self.tokenizer.eos_token_id) + 1 # Saltar-se  EOS
+            padding_captions[num, padding_start_index:] = float('-inf') # -inf ignora, 0 deixa passar
 
-        edges_idxs_coo = [[(idx['global_index_src'], idx['global_index_dst'])
-                           for idx in sample['graph_data']['edges']]
-                          for sample in batch]
+            nodes_in_this_graph = [merged_nodes.index(node) for node in graph.nodes()]
+            per_image_nodes[num] = nodes_in_this_graph
 
-        edges_categories = [[self.graph_tokenizer.token_dict[idx['edge_type']]
-                           for idx in sample['graph_data']['edges']]
-                          for sample in batch]
+        tokenized_nodes = torch.tensor([self.graph_tokenizer.token_dict[node] for node in merged_nodes + [PADDING_TAG]],
+                                       dtype=torch.int64)
+        tokenized_node_types = torch.tensor([self.graph_tokenizer.token_dict[node] for node in merged_node_types
+                                             + ['special']],
+                                            dtype=torch.int64)
+        tokenized_edge_types = torch.tensor([self.graph_tokenizer.token_dict[edge] for edge in merged_edge_types],
+                                            dtype=torch.int64)
+
+        max_num_nodes = max([len(x) for x in per_image_nodes])
+        padded_nodes = [nodes + ([-1] * (max_num_nodes - len(nodes))) for nodes in per_image_nodes]
 
         return {
             'images': images,
             'captions': tokenized_captions,
+            'captions_padding': padding_captions,
             'graph': {
-                'node_embs': {
-                    'idxs': node_embs_idxs,
-                    'tokens': node_embs_tokenized,
-                    'categories': node_embs_categories_tokenized
-                },
-                'node_txts': {
-                    'idxs': node_txt_idxs,
-                    'tokens': node_txt_tokenized,
-                    'categories': node_txt_categories_tokenized
-                },
-                'edges': {
-                    'idxs_coo': edges_idxs_coo,
-                    'categories': edges_categories
-                }
+                'nodes': tokenized_nodes,
+                'edges': merged_edges,
+                'node_types': tokenized_node_types,
+                'edge_types': tokenized_edge_types,
+                'batched_nodes': torch.tensor(
+                    padded_nodes, dtype=torch.int64
+                )
             }
         }

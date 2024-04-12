@@ -61,11 +61,31 @@ class LSTMTextEncoder(nn.Module):
         output, (_, _) = self.lstm(batch)
         return output[:, -1, :]
 
-class TransformerTextEncoder(nn.Module):
-    def __init__(self, text_embedding):
-        # Per ser consistents, hem de tokenitzar fora i fer els embeddings al forward
-        pass
 
+class TransformerTextEncoder(nn.Module):
+    def __init__(self, vocab_size: int, emb_size: int, num_heads: int, num_layers: int, dropout: float = 0.1):
+        super().__init__()
+        self.embedding = nn.Embedding(vocab_size + 1, emb_size)  # Add 1 for the classification token
+        self.positional_encoding = PositionalEncoding(emb_size)
+        encoder_layer = nn.TransformerEncoderLayer(d_model=emb_size, nhead=num_heads, dropout=dropout)
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.vocab_cardinality = vocab_size
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Arguments:
+            x: Tensor, shape ``[batch_size, seq_len]``
+        """
+        # Add classification token
+        x = torch.cat((self.vocab_cardinality * torch.ones(x.size(0), 1, dtype=torch.long, device=x.device), x), dim=1)
+        # Embedding and positional encoding
+        x = self.embedding(x)
+        x = x.permute(1, 0, 2)
+        x = self.positional_encoding(x)
+        # Transformer encoding
+        x = self.transformer_encoder(x)
+
+        return x[0]
 class TransformerDecoder(nn.Module):
     def __init__(self, encoder, encoder_input_size, text_embedding, decoder_token_size, decoder_depth, vocab_size,
                  decoder_width,

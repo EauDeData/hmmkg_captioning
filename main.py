@@ -8,7 +8,8 @@ from src.tokenizers.node_and_edges_tokenizers import GraphTokenizer
 from src.data.data_defaults import IMAGENET_MEANS, IMAGENET_STDS
 from src.data.datautils import compute_or_get_vocab_weights
 from src.models.graphs import GraphContextGAT, GraphContextTransformerEncoder
-from src.models.text import CLIPTextEncoder, TransformerDecoder, LSTMDecoderWithAttention, GPT2Decoder, LSTMTextEncoder
+from src.models.text import (CLIPTextEncoder, TransformerDecoder,
+                             LSTMDecoderWithAttention, GPT2Decoder, LSTMTextEncoder, TransformerTextEncoder)
 from src.models.vision import CLIPVisionEncoder, CaTrBackbone
 from src.loops.cross_entropy_train import cross_entropy_train_loop
 from src.loops.eval import eval
@@ -36,19 +37,22 @@ def get_image_encoder(args):
     else:
         raise NotImplementedError(f"{args.image_encoder} is not among implemented image encoders")
 
-def get_text_encoder(args):
+def get_text_encoder(args, tokenizer = None):
     if args.text_encoder == 'CLIP':
         return CLIPTextEncoder(clip_model_tag=args.clip_tag)
     elif args.text_encoder == 'projection':
         return torch.nn.Sequential(torch.nn.Linear(args.text_emb_size, args.text_emb_size), torch.nn.ReLU())
     elif args.text_encoder == 'lstm':
         return torch.nn.Sequential(LSTMTextEncoder(args.text_emb_size, args.gat_depth), torch.nn.ReLU())
+    elif args.text_encoder == 'tr':
+        return TransformerTextEncoder(len(tokenizer), args.text_emb_size, args.gat_width, args.gat_depth )
+
     else:
         raise NotImplementedError(f"{args.text_encoder} is not among implemented image encoders")
 def prepare_models(args):
 
     graph_tokenizer, text_tokenizer, graph_embedding, text_embedding = get_graph_embedding(args)
-    visual_model, textual_model = get_image_encoder(args), get_text_encoder(args)
+    visual_model, textual_model = get_image_encoder(args), get_text_encoder(args, tokenizer=text_tokenizer)
 
     if args.encoder_approach == 'simple_tr_encoder':
         graph_processor = GraphContextTransformerEncoder(visual_model, args.image_emb_size,

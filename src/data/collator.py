@@ -108,6 +108,8 @@ class Collator:
 
         per_image_nodes = [[] for _ in batch]
 
+
+
         for num, (caption, graph) in enumerate(zip(tokenized_captions,graphs)):
 
             padding_start_index = caption.tolist().index(self.tokenizer.eos_token_id) + 1 # Saltar-se  EOS
@@ -127,12 +129,17 @@ class Collator:
         max_num_nodes = max([len(x) for x in per_image_nodes])
         padded_nodes = [nodes + ([-1] * (max_num_nodes - len(nodes))) for nodes in per_image_nodes]
 
+        padded_text_nodes = self.tokenizer.tokenize(
+            merged_nodes + [PADDING_TAG]
+        ) # TODO: Surely we dont need 77 tokens for a simple word
+
         return {
             'images': images,
             'captions': tokenized_captions,
             'captions_padding': padding_captions,
             'graph': {
                 'nodes': tokenized_nodes,
+                'text_nodes': padded_text_nodes,
                 'edges': merged_edges,
                 'node_types': tokenized_node_types,
                 'edge_types': tokenized_edge_types,

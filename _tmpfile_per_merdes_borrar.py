@@ -1,25 +1,23 @@
-from src.data.datasets import CaptioningDataset
-from src.models.vision import CaTrBackbone
 
-import resource
-import torch
-import numpy as np
-from PIL import Image
+import os
+from tqdm import tqdm
+from src._io.ioutils import read_image_any_format
+import pandas as pd
+valid_extensions = ['.pdf', '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp', '.tif', '.svg']
+base_folder = '/data/users/amolina/hmmkgv2/images/'
+start_index = 24060
 
-def create_caption_and_mask(start_token, max_length):
-    caption_template = torch.zeros((1, max_length), dtype=torch.long)
-    mask_template = torch.ones((1, max_length), dtype=torch.bool)
+df = pd.read_csv('/data/users/amolina/hmmkgv2/images/downloaded_images.tsv', sep='\t')
+# STEP 1: Recursively list all files under the folder if they have a valid extension
+files = [os.path.join(base_folder, 'images', x)
+         for x, z in
+         zip(df['subpath'], df['missing'])
+         if any(x.endswith(y) for y in valid_extensions) and z]
 
-    caption_template[:, 0] = start_token
-    mask_template[:, 0] = False
-
-    return caption_template, mask_template
-
-rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
-print('rlimit', rlimit)
-resource.setrlimit(resource.RLIMIT_NOFILE, (4096, rlimit[1]))
-
-dataset = CaptioningDataset(3, 3, split = 'train')
-
-model = CaTrBackbone()
-print(model(torch.rand(8, 3, 224, 224)).shape)
+# STEP 3: Enumerate (and use tqdm) to try reading each file with `read_image_any_format`
+for i, file in tqdm(enumerate(files[start_index:], start=start_index), total=len(files)-start_index):
+    try:
+        read_image_any_format(file)
+    except Exception as e:
+        print(f"Error reading file: {' / '.join(file.split('/'))},\n Exception: {e}, Index: {i}")
+        exit()

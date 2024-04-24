@@ -1,6 +1,6 @@
 import numpy as np
 
-from src.data.datasets import CaptioningDataset, CocoCaption, GCCaptions
+from src.data.datasets import MaskedCaptionningDataset, CocoCaption, GCCaptions
 from src._io.ioutils import read_json
 from src.data.collator import Collator
 from src.tokenizers.tokenizers import CLIPOriginalTokenizer, BERTTokenizer
@@ -9,9 +9,10 @@ from src.data.data_defaults import IMAGENET_MEANS, IMAGENET_STDS
 from src.data.datautils import compute_or_get_vocab_weights
 from src.models.graphs import GraphContextGAT, GraphContextTransformerEncoder
 from src.models.text import (CLIPTextEncoder, TransformerDecoder,
-                             LSTMDecoderWithAttention, GPT2Decoder, LSTMTextEncoder, TransformerTextEncoder)
+                             LSTMDecoderWithAttention, GPT2Decoder, LSTMTextEncoder, TransformerTextEncoder,
+                             TwoStagesTransformerDecoder)
 from src.models.vision import CLIPVisionEncoder, CaTrBackbone
-from src.loops.cross_entropy_train import cross_entropy_train_loop
+from src.loops.cross_entropy_train import cross_entropy_train_loop, cross_entropy_train_loop_for_masked_filling
 from src.loops.eval import eval
 
 from torch.utils.data import DataLoader
@@ -77,6 +78,17 @@ def prepare_models(args):
                                      args.decoder_emb_size, args.decoder_depth, len(text_tokenizer), args.decoder_width,
                                      args.text_context_size, text_tokenizer.eos_token_id, text_tokenizer.bos_token_id,
                                      args.freeze_backbone, args.auto_recurrent_decoder)
+    elif args.decoder_architecture == 'tstr':
+
+        special_tokens = [f"[{x}]" for x in text_tokenizer.special_tokens]
+        # text_tokenizer.tokenizer is a bert tokenizer
+
+        special_tokens_idx = text_tokenizer.tokenizer.convert_tokens_to_ids(special_tokens)
+
+        decoder = TwoStagesTransformerDecoder(special_tokens_idx, graph_processor, args.gat_feature_size, text_embedding,
+                                 args.decoder_emb_size, args.decoder_depth, len(text_tokenizer), args.decoder_width,
+                                 args.text_context_size, text_tokenizer.eos_token_id, text_tokenizer.bos_token_id,
+                                 args.freeze_backbone, args.auto_recurrent_decoder)
     elif args.decoder_architecture == 'lstm':
         decoder = LSTMDecoderWithAttention(graph_processor, args.gat_feature_size, textual_model.model.token_embedding,
                                            args.decoder_emb_size, len(text_tokenizer),
@@ -127,12 +139,13 @@ def prepare_data(args, text_tokenizer, graph_tokenizer):
         dataset_kwargs = {
             'random_walk_leng': args.random_walk_len,
             'neighbor_context_window': args.context_neight_depth,
-            'text_processor_nodes': args.nodes_to_text
+            'text_processor_nodes': args.nodes_to_text,
+            'masked_captions_csv_path': args.maked_captions_csv
         }
 
 
-        train_set, test_set = (CaptioningDataset(**{**dataset_kwargs, **{'split': 'train'}}), # TODO: WARNING! THIS IS SWITCHED S ITS EASY TO OVERFIT
-                               CaptioningDataset(**{**dataset_kwargs, **{'split': 'test'}}))
+        train_set, test_set = (MaskedCaptionningDataset(**{**dataset_kwargs, **{'split': 'train'}}), # TODO: WARNING! THIS IS SWITCHED S ITS EASY TO OVERFIT
+                               MaskedCaptionningDataset(**{**dataset_kwargs, **{'split': 'test'}}))
     else: raise NotImplementedError('Please, provide a valid dataset, mate...')
 
     if args.encoder_approach == 'simple_tr_encoder':
@@ -209,7 +222,7 @@ def main(args):
     for epoch in range(args.epoches):
 
         print(f"-----Training Epoch {epoch}--------")
-        train_loss = cross_entropy_train_loop(train_loader, optimizer, model, logger=logger, epoch=epoch,
+        train_loss = cross_entropy_train_loop_for_masked_filling(train_loader, optimizer, model, logger=logger, epoch=epoch,
                                               loss_function=loss_function, tokenizer=text_tokenizer)
         print(f"(Script) Trained epoch {epoch} with loss {train_loss}")
 

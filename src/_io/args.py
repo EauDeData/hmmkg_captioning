@@ -58,6 +58,8 @@ def parse_arguments():
     parser.add_argument('--images_parent_folder', type=str, default=IMAGES_PARENT_FOLDER)
     parser.add_argument('--graph_tokenizer_path', type=str, default=GRAPH_TOKENIZER_DEFAULT_PATH)
     parser.add_argument('--text_tokenizer', choices=['CLIP', 'bert'], default='bert')
+    parser.add_argument('--maked_captions_csv',
+                        default='/data/users/amolina/hmmkgv2/images/masked_captions.tsv')
 
     parser.add_argument('--non_admited_file_formars', nargs='+', type=str,
                         default=NON_ADMITED_FILE_FORMATS)
@@ -67,7 +69,8 @@ def parse_arguments():
     parser.add_argument('--nodes_to_embedding', nargs='+', type=str, default=EMBEDDING_NODE_CATEGORIES)
 
     parser.add_argument('--image_encoder', type=str, default='CLIP', choices=['CLIP', 'CaTr'])
-    parser.add_argument('--text_encoder', type=str, default='CLIP', choices=['CLIP', 'projection', 'lstm', 'tr'])
+    parser.add_argument('--text_encoder', type=str, default='CLIP', choices=['CLIP', 'projection',
+                                                                             'lstm', 'tr'])
     parser.add_argument('--text_context_size', type=int, default=DEFAULT_TEXT_TOKENIZER_CONTEXT_LENGTH)
 
     parser.add_argument('--clip_tag', type=str, default=CLIP_MODEL_TAG)
@@ -87,7 +90,7 @@ def parse_arguments():
     parser.add_argument('--train_text', action='store_true')
 
 
-    parser.add_argument('--decoder_architecture', type=str, default='tr', choices=['tr', 'lstm', 'gpt2'])
+    parser.add_argument('--decoder_architecture', type=str, default='tr', choices=['tr', 'tstr', 'lstm', 'gpt2'])
     parser.add_argument('--decoder_emb_size', type=int, default=512)
     parser.add_argument('--decoder_depth', type=int, default=1)
     parser.add_argument('--decoder_width', type=int, default=8)

@@ -32,7 +32,7 @@ class GraphContextGAT(nn.Module):
         self.gat_backbone = GAT(gat_feature, hidden_channels, depth, feature_size, dropout=dropout, heads=heads)
 
         encoder_layer = nn.TransformerEncoderLayer(d_model=feature_size, nhead=in_channels, batch_first=False)
-        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=depth)
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=1)
 
         self.image_projection = nn.Linear(image_embedding_size, feature_size)
 
@@ -94,11 +94,12 @@ class GraphContextGAT(nn.Module):
         mask[IMTOKENS:, IMTOKENS:] = float('-inf')  # In only one direction
         mask = mask.masked_fill(torch.eye(mask.size(-1), dtype=torch.bool, device=self.device), 0)
 
-
         propagated = self.transformer_encoder(final_vector, mask=mask)[:IMTOKENS]  # Taske only contextualized image features
 
         return {
-            'features': propagated.transpose(0, 1),  # Shape: (Batch, Seq, FEATURE_SIZE)
+            'encoder_features': propagated.transpose(0, 1),  # Shape: (Batch, Seq, FEATURE_SIZE)
+            'graph_features': node_tokens.transpose(0, 1),
+            'image_features': image_tokens.transpose(0, 1),
             'memory_mask': None
         }
 

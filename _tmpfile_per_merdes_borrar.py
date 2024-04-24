@@ -5,7 +5,7 @@ from src._io.ioutils import read_image_any_format
 import pandas as pd
 valid_extensions = ['.pdf', '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp', '.tif', '.svg']
 base_folder = '/data/users/amolina/hmmkgv2/images/'
-start_index = 24060
+start_index = 21823 - 1
 
 df = pd.read_csv('/data/users/amolina/hmmkgv2/images/downloaded_images.tsv', sep='\t')
 # STEP 1: Recursively list all files under the folder if they have a valid extension
@@ -19,5 +19,5 @@ for i, file in tqdm(enumerate(files[start_index:], start=start_index), total=len
     try:
         read_image_any_format(file)
     except Exception as e:
-        print(f"Error reading file: {' / '.join(file.split('/'))},\n Exception: {e}, Index: {i}")
+        print(f"Error reading file: {' / '.join(file.split('/'))} ,\n Exception: {e}, Index: {i}")
         exit()

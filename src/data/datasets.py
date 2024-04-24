@@ -10,6 +10,7 @@ import pickle
 from torch.utils.data import Dataset
 from multiprocessing import Pool, Manager
 from PIL import Image
+import copy
 
 from src.data.data_defaults import (PATH_TO_GRAPH_GEXF, PATH_TO_IMAGES_TSV,
                                     IMAGES_PARENT_FOLDER, VALID_CATEGORIES, DATASET_SAVE_PATH_FSTRING, MYSELF_TAG,
@@ -52,14 +53,15 @@ class CaptioningDataset(Dataset):
         self.clean_graph = self.graph.subgraph(dict(filtered_nodes + text_nodes_not_linked_to_image))
 
         self.images = pd.read_csv(path_to_images_csv, sep='\t')
-
+        nodes_all_listed = self.ugraph.nodes()
+        print(nodes_all_listed)
         self.data_items = []
         for idx, (node_id, path, available, train, url) in tqdm(enumerate(
                 zip(
                     *[self.images[column] for column in ['image_node_title', 'subpath', 'missing', 'train', 'url']]
                 )
         ), total=len(self.images), desc=f"Getting {split} dataset ready for you!"):
-
+            if not node_id in nodes_all_listed: continue
             item = {
                 'node_id': node_id,
                 'data_path': os.path.join(
@@ -98,6 +100,7 @@ class CaptioningDataset(Dataset):
                 C_graph = neighbors_with_media[0]
                 for contexts in neighbors_with_media[1:] + [new_graph]:
                     C_graph = nx.compose(C_graph, contexts)
+
                 item['context'] = C_graph.to_undirected()
                 item['has_media_origin'] = [neighbor
                                             for neighbor in self.ugraph.neighbors(node_id)
@@ -125,6 +128,7 @@ class CaptioningDataset(Dataset):
             sample_size=1, path_length=self.random_walk_leng, weight=None))[0])
 
         return {'image': read_image_any_format(data_item['data_path']),
+                # El walk hauria de ser llargot si volem que estigui tot el contexte
                 'graph_data': nx.subgraph(data_item['context'], random_walk_sequence),
                 'caption': random.choice(list(data_item['captions']))}
 
@@ -135,6 +139,51 @@ class CaptioningDataset(Dataset):
                             for node_type in VALID_CATEGORIES + ['text_content', 'image_content']}
         return {**node_type_counts, **{'total': len(data_item)}}
 
+class MaskedCaptionningDataset(CaptioningDataset):
+    def __init__(self, *args, masked_captions_csv_path='whatever', **kwargs):
+        super().__init__(*args, **kwargs)
+
+        valid_extensions = ['.pdf', '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp', '.tif', '.svg']
+        tmpitems = copy.copy(self.data_items)
+        self.data_items = []
+        for item in tmpitems:
+            if '.' + item['data_path'].split('.')[-1] in valid_extensions:
+                self.data_items.append(item)
+        del tmpitems
+        captions_and_masked = {}
+        captions_df = pd.read_csv(masked_captions_csv_path, sep='\t')
+        print(captions_df)
+        for node_id, caption, masked in zip(captions_df['image_node_title'], captions_df['captions'],
+                                            captions_df['masked_captions']):
+            caption = str(caption)
+            masked = str(masked) # Sometimes there's NaN, shall manage it later
+            captions_and_masked[node_id] = {'captions': caption.split('| caps |'),
+                                            'masked_captions': masked.split('| mskd |')
+                                            }
+
+        for n, item in enumerate(self.data_items):
+            self.data_items[n]['captions'] = captions_and_masked[self.data_items[n]['node_id']]['captions']
+            self.data_items[n]['masked_captions'] = (
+                captions_and_masked[self.data_items[n]['node_id']]['masked_captions'])
+
+        tmpitems = copy.copy(self.data_items)
+        self.data_items = []
+        for item in tmpitems:
+            if item['captions'][0]!= "nan":
+                self.data_items.append(item)
+        del tmpitems
+    def __getitem__(self, idx):
+
+        # Aqui agafarem el graph i farem un random walk
+        data_item = self.data_items[idx]
+        random_walk_sequence = set(list(nx.generate_random_paths(
+            data_item['context'],
+            sample_size=1, path_length=self.random_walk_leng, weight=None))[0])
+        random_idx = random.randint(0, len(data_item['captions']) - 1)
+        return {'image': read_image_any_format(data_item['data_path']),
+                # El walk hauria de ser llargot si volem que estigui tot el contexte
+                'graph_data': nx.subgraph(data_item['context'], random_walk_sequence),
+                'caption': data_item['captions'][random_idx], 'masked': data_item['masked_captions'][random_idx]}
 
 class CocoCaption(CaptioningDataset):
     def __init__(self, root, ann, to_text_nodes=[]):

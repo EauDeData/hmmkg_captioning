@@ -32,6 +32,10 @@ class CLIPOriginalTokenizer:
 class BERTTokenizer:
     def __init__(self, context_length = DEFAULT_TEXT_TOKENIZER_CONTEXT_LENGTH):
         self.tokenizer = AutoTokenizer.from_pretrained("google-bert/bert-base-uncased")
+        self.special_tokens = ["CARDINAL", "DATE", "EVENT", "FAC", "GPE", "LANGUAGE", "LAW", "LOC", "MONEY", "NORP", "ORDINAL", "ORG", "PERCENT", "PERSON", "PRODUCT", "QUANTITY", "TIME", "WORK_OF_ART"]
+        self.tokenizer.add_tokens([f"[{x}]" for x in self.special_tokens])
+        assert len(self.tokenizer.tokenize('[WORK_OF_ART]')) == 1, "look at this happening to the tokenizer!"
+
         self.sentence_len = context_length
 
         self.bos_token_id = 101

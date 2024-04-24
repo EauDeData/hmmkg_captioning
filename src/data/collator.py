@@ -96,6 +96,12 @@ class Collator:
         padding_captions = torch.zeros(tokenized_captions.shape[0], tokenized_captions.shape[-1],
                                        dtype=torch.float32)
 
+        tokenized_masked_captions = torch.stack([self.tokenizer.tokenize([sample['masked']]) for sample in batch]).view\
+            (images.shape[0], -1) # (BATCH_SIZE, context_length)
+
+        padding_masked_captions = torch.zeros(tokenized_captions.shape[0], tokenized_captions.shape[-1],
+                                       dtype=torch.float32)
+
         graphs = [g['graph_data'] for g in batch]
         merged_graph = nx.compose_all(graphs)
 
@@ -110,10 +116,13 @@ class Collator:
 
 
 
-        for num, (caption, graph) in enumerate(zip(tokenized_captions,graphs)):
+        for num, (caption, masked, graph) in enumerate(zip(tokenized_captions,tokenized_masked_captions, graphs)):
 
             padding_start_index = caption.tolist().index(self.tokenizer.eos_token_id) + 1 # Saltar-se  EOS
             padding_captions[num, padding_start_index:] = float('-inf') # -inf ignora, 0 deixa passar
+
+            padding_start_index_msk = masked.tolist().index(self.tokenizer.eos_token_id) + 1 # Saltar-se  EOS
+            padding_masked_captions[num, padding_start_index_msk:] = float('-inf') # -inf ignora, 0 deixa passar
 
             nodes_in_this_graph = [merged_nodes.index(node) for node in graph.nodes()]
             per_image_nodes[num] = nodes_in_this_graph
@@ -135,9 +144,12 @@ class Collator:
 
         return {
             'images': images,
-            'captions': tokenized_captions,
-            'captions_padding': padding_captions,
+            'unmasked_captions': tokenized_captions,
+            'unmasked_captions_padding': padding_captions,
+            'captions': tokenized_masked_captions,
+            'captions_padding': padding_masked_captions,
             'graph': {
+                'graphs': graphs,
                 'nodes': tokenized_nodes,
                 'text_nodes': padded_text_nodes,
                 'edges': merged_edges,

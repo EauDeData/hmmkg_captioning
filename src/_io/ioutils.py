@@ -9,13 +9,14 @@ import json
 
 Image.MAX_IMAGE_PIXELS = None # WARNING! Do not run this code without care of the downloaded database
 defusedxml.common._apply_defusing = lambda x: x
-
+print("(script - ioutils.py line 19) WARNING!! CairoSVG is using unsafe=True,"
+      " I can do this because I did the data myself and I know I am safe. Are you?")
 
 def read_svg_with_pillow(svg_path):
     # Convert SVG to PNG using cairosvg
     with open(svg_path, 'rb') as file:
         svg_content = file.read()
-        png_data = cairosvg.svg2png(file_obj=BytesIO(svg_content))
+        png_data = cairosvg.svg2png(file_obj=BytesIO(svg_content), unsafe=True)
 
         # Read PNG data with Pillow
         pil_image = Image.open(BytesIO(png_data))

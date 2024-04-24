@@ -238,17 +238,16 @@ class TwoStagesTransformerDecoder(TransformerDecoder):
         contextualized_image = output_stage_1['encoder_features']  # Pass the batch X through the encoder
         contextualized_image_features = self.memory(contextualized_image).permute(1, 0, 2)
 
-        memory = self.contextualize_masked_sequence(output_stage_1)
+        input_filled_sequence = self.contextualize_masked_sequence(output_stage_1)
+
         decoded = self.gelu_fn(self.decoder(
-            tgt=memory,
+            tgt=input_filled_sequence,
             memory=contextualized_image_features,
-            # TODO: Aqui lo mateix, no podem fer servir el mateix padding pel truncament d'algunes Named entities llargues
-            tgt_key_padding_mask=(X['unmasked_captions_padding'] == float('-inf')).to(self.device),
         ))
 
         # Project the decoder output to vocabulary space
         output = self.lm_head(decoded)
-        return output, memory, output_stage_1
+        return output, input_filled_sequence, output_stage_1
     def forward(self, X):
 
         # Care "captions" must have masked named entities!!!

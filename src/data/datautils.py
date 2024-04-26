@@ -33,6 +33,14 @@ def compute_or_get_vocab_weights(dataset, tokenizer, padding_token_id, vocab_siz
     weights[padding_token_id] = 0
     weights[tokenizer.bos_token_id] = 1
     weights[tokenizer.eos_token_id] = 1
+
+
+    special_tokens = [f"[{x}]" for x in tokenizer.special_tokens]
+    # text_tokenizer.tokenizer is a bert tokenizer
+    special_tokens_idx = tokenizer.tokenizer.convert_tokens_to_ids(special_tokens)
+
+    for idx in special_tokens_idx:
+        weights[idx] = 1
     return weights
 
 

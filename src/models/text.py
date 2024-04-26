@@ -122,7 +122,7 @@ class TransformerDecoder(nn.Module):
 
     def eval_forward(self, X):
         encoder_dict_of_features = self.encoder(X)
-        encoder_output = encoder_dict_of_features['image_features']  # Pass the batch X through the encoder
+        encoder_output = encoder_dict_of_features['encoder_features']  # Pass the batch X through the encoder
         memory = self.memory(encoder_output).permute(1, 0, 2)
 
         output = torch.ones(memory.shape[1], self.max_tokens_decode).long().to(memory.device) * self.start_token_id
@@ -151,7 +151,7 @@ class TransformerDecoder(nn.Module):
         encoder_dict_of_features = self.encoder(X)
         # TODO: Warning! we are taking "image features" the features to take should be a parameter
         # Bc this classs cannot be used anymore "as is" for context
-        encoder_output = encoder_dict_of_features['image_features']  # Pass the batch X through the encoder
+        encoder_output = encoder_dict_of_features['encoder_features']  # Pass the batch X through the encoder
         memory = self.memory(encoder_output).permute(1, 0, 2)
 
         captions_templates = X['captions'].to(memory.device)
@@ -214,7 +214,7 @@ class TwoStagesTransformerDecoder(TransformerDecoder):
         With the embedding of the graph
         Then we can decode with that context to insert the named entities smoothly.
         '''
-        graph_features = stage_1_ouput['graph_features'].transpose(1,0) # (SEQ, BATCH, FEATS)
+        graph_features = stage_1_ouput['encoder_graph_features'].transpose(1,0) # (SEQ, BATCH, FEATS)
         generated_sequence = stage_1_ouput['generated_sequence'].detach().transpose(1,0) # (SEQ, BATCH)
 
         # Knowing how to insert the features of the graph is a TODO
@@ -235,14 +235,18 @@ class TwoStagesTransformerDecoder(TransformerDecoder):
 
     def context_forward(self, X, stage_1_func):
         output_stage_1 = stage_1_func(self, X)
-        contextualized_image = output_stage_1['encoder_features']  # Pass the batch X through the encoder
-        contextualized_image_features = self.memory(contextualized_image).permute(1, 0, 2)
-
         input_filled_sequence = self.contextualize_masked_sequence(output_stage_1)
 
+        captions_templates = X['unmasked_captions'].to(input_filled_sequence.device)
+        sequence = self.text_processor(captions_templates)
+        positional_sequence = self.pos_emb(sequence.permute(1, 0, 2))
+        mask = generate_square_subsequent_mask(positional_sequence)
+
         decoded = self.gelu_fn(self.decoder(
-            tgt=input_filled_sequence,
-            memory=contextualized_image_features,
+            tgt=positional_sequence,
+            memory=input_filled_sequence,
+            tgt_key_padding_mask=(X['unmasked_captions_padding'] == float('-inf')).to(sequence.device),
+            tgt_mask=mask,
         ))
 
         # Project the decoder output to vocabulary space
@@ -260,13 +264,29 @@ class TwoStagesTransformerDecoder(TransformerDecoder):
         }
 
     def eval_forward(self, X):
-        output, memory, output_stage_1 = self.context_forward(X, TransformerDecoder.eval_forward)
+        output_stage_1 = TransformerDecoder.eval_forward(self, X)
+        memory = self.contextualize_masked_sequence(output_stage_1)
 
+        output = torch.ones(memory.shape[1], self.max_tokens_decode).long().to(memory.device) * self.start_token_id
+        logits = torch.zeros(self.max_tokens_decode, memory.shape[1], self.vocab_size, device=memory.device)
+        logits[0, :, self.start_token_id] = 1
+        for t in range(1, self.max_tokens_decode):
+            tgt_emb = self.pos_emb(self.text_processor(output[:, :t].detach()).transpose(1, 0))
+            tgt_mask = generate_square_subsequent_mask(tgt_emb)
+
+            decoder_output = self.gelu_fn(self.decoder(tgt=tgt_emb,
+                                                       memory=memory,
+                                                       tgt_mask=tgt_mask))
+
+            pred_proba_t = self.lm_head(decoder_output)[-1, :, :]
+            output_t = pred_proba_t.data.topk(1)[1].squeeze()
+            output[:, t] = output_t
+            logits[t] = pred_proba_t
         return {
             **{'masked_features': memory,
-               'masked_language_head_output': output,
-               'masked_generated_sequence': output.argmax(-1).transpose(1, 0),
-               'masked_hidden_states': None}, **output_stage_1
+            'masked_language_head_output': logits,
+            'masked_generated_sequence': output,
+            'masked_hidden_states': None}, **output_stage_1
         }
 
     def autorrecurrent_forward(self, batch):

@@ -42,6 +42,7 @@ def read_image_any_format(path):
             path = path.replace(file_extension, '.png')
         pil_image = Image.open(path)
 
+
     elif file_extension == '.svg':
 
         pil_image = read_svg_with_pillow(path)

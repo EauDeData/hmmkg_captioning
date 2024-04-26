@@ -43,7 +43,7 @@ def cross_entropy_train_loop(dataloader, optimizer, model, loss_function = torch
 
 def cross_entropy_train_loop_for_masked_filling(
         dataloader, optimizer, model,
-        loss_function = torch.nn.CrossEntropyLoss(), logger = None, epoch=0, tokenizer=lambda x: x):
+        loss_function = torch.nn.CrossEntropyLoss(), logger = None, epoch=0, tokenizer=lambda x: x, warmup_epochs = 50):
 
     model.train()
     losses = []
@@ -71,7 +71,10 @@ def cross_entropy_train_loop_for_masked_filling(
             # Displace it one step, so I have to predict the next one.
             labels = torch.cat((batch['unmasked_captions'][:, 1:], torch.zeros_like(batch['unmasked_captions'][:, :1])), dim=1)\
                 .reshape(output.shape[0] * output.shape[1]).to(output.device)
-            loss = .5 * loss + .5 * loss_function(ouput_flattened, labels) # TODO: Don't hardcode weights!!!
+
+            p = min(((epoch + 1) / warmup_epochs), 0.90)
+
+            loss = (1-p) * loss + p * loss_function(ouput_flattened, labels) # TODO: Don't hardcode weights!!!
 
         loss.backward()
 

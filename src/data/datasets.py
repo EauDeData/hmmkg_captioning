@@ -94,7 +94,7 @@ class CaptioningDataset(Dataset):
                                                                    'default_type')  # Get edge_type, use 'default_type' if not present
 
                     if edge_type in ['has_media', 'in_media']:
-                        new_graph.add_node(MYSELF_TAG, node_type='special', content=MYSELF_TAG)
+                        new_graph.add_node(MYSELF_TAG, nocaptions_and_maskedde_type='special', content=MYSELF_TAG)
                         new_graph.add_edge(MYSELF_TAG, neighbor, edge_type=edge_type)
 
                 C_graph = neighbors_with_media[0]
@@ -139,51 +139,117 @@ class CaptioningDataset(Dataset):
                             for node_type in VALID_CATEGORIES + ['text_content', 'image_content']}
         return {**node_type_counts, **{'total': len(data_item)}}
 
+
 class MaskedCaptionningDataset(CaptioningDataset):
     def __init__(self, *args, masked_captions_csv_path='whatever', **kwargs):
-        super().__init__(*args, **kwargs)
+        # super().__init__(*args, **kwargs)
+        print(kwargs)
+        print(args)
+        dataset_checkpoint_name = (kwargs.get('dataset_checkpoint', DATASET_SAVE_PATH_FSTRING).
+                                   format(f'{kwargs["split"]}_{kwargs["neighbor_context_window"]}_radius'))
+        self.path_leng = kwargs.get('random_walk_leng', None)
 
-        valid_extensions = ['.pdf', '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp', '.tif', '.svg']
-        tmpitems = copy.copy(self.data_items)
-        self.data_items = []
-        for item in tmpitems:
-            if '.' + item['data_path'].split('.')[-1] in valid_extensions:
-                self.data_items.append(item)
-        del tmpitems
+        if os.path.exists(dataset_checkpoint_name):
+            self.data_items = pickle.load(open(dataset_checkpoint_name, 'rb'))
+            self.cleanse_dataset()
+            return
+
+        graph = nx.read_gexf(kwargs.get('path_to_gexf_context', PATH_TO_GRAPH_GEXF)).to_undirected()
+        all_nodes = set(graph.nodes())
+
+        filtered_nodes = [node for node, datum in graph.nodes(data=True)
+                          if datum.get('node_type') in VALID_CATEGORIES + ['text_content', 'image_content'] and (not node in ['', ' '])]
+
+        self.graph = graph.subgraph(filtered_nodes)
+
         captions_and_masked = {}
         captions_df = pd.read_csv(masked_captions_csv_path, sep='\t')
         print(captions_df)
-        for node_id, caption, masked in zip(captions_df['image_node_title'], captions_df['captions'],
-                                            captions_df['masked_captions']):
-            caption = str(caption)
-            masked = str(masked) # Sometimes there's NaN, shall manage it later
+        for node_id, caption, masked in tqdm(zip(captions_df['image_node_title'], captions_df['captions'],
+                                                 captions_df['masked_captions']), total=len(captions_df),
+                                             desc=f'Processing captions of {kwargs["split"]} split...'):
+
+            if (caption != caption) or (masked != masked) or (not node_id in all_nodes): continue
+
             captions_and_masked[node_id] = {'captions': caption.split('| caps |'),
                                             'masked_captions': masked.split('| mskd |')
                                             }
 
-        for n, item in enumerate(self.data_items):
-            self.data_items[n]['captions'] = captions_and_masked[self.data_items[n]['node_id']]['captions']
-            self.data_items[n]['masked_captions'] = (
-                captions_and_masked[self.data_items[n]['node_id']]['masked_captions'])
-
-        tmpitems = copy.copy(self.data_items)
+        self.images = pd.read_csv(kwargs.get('path_to_images_csv', PATH_TO_IMAGES_TSV), sep='\t')
         self.data_items = []
-        for item in tmpitems:
-            if item['captions'][0]!= "nan":
-                self.data_items.append(item)
-        del tmpitems
+        for idx, (node_id, path, available, train, url) in tqdm(enumerate(
+                zip(
+                    *[self.images[column] for column in ['image_node_title', 'subpath', 'missing', 'train', 'url']]
+                )
+        ), total=len(self.images), desc=f"Getting {kwargs['split']} dataset ready for you!"):
+
+            if not available \
+                    or ('train' if train else 'test') != kwargs['split'] \
+                    or not node_id in captions_and_masked:
+                continue
+            valid = ['.pdf', '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp', '.tif', '.svg']
+            if not any([path.endswith(x) for x in valid]): continue
+
+            # Args[1] := Neighborhood radius
+
+            hood = nx.ego_graph(self.graph, node_id, radius=kwargs.get('neighbor_context_window', None))
+            hood = nx.subgraph(hood,
+                               [node for node, datum in self.graph.nodes(data=True)
+                                if not (datum.get('node_type') in ['text_content', 'image_content'])
+                                ]
+                               ) # We get rid of ourselves
+            self.data_items.append({
+                **captions_and_masked[node_id],
+                **{
+                    'context': hood,
+                    'data_path': os.path.join(kwargs.get('images_parent_folder', IMAGES_PARENT_FOLDER), path)
+                }
+            })
+        pickle.dump(self.data_items, open(dataset_checkpoint_name, 'wb'))
+
+    def cleanse_dataset(self):
+        valid = ['.pdf', '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp', '.tif', '.svg']
+        self.data_items = [item for item in self.data_items if any([item['data_path'].endswith(x) for x in
+                                                              valid])]
+    @staticmethod
+    def random_walk(graph, nsamples, leng):
+
+        nodes = list(graph.nodes())
+        if not len(nodes): return []
+        seeds = random.sample(nodes, min(nsamples, len(nodes)))
+
+        random_walks = []
+        for current_node in seeds:
+            this_walk = [current_node]
+            for _ in range(leng):
+                possible_paths = list(graph.neighbors(current_node))
+                if not len(possible_paths): break
+                this_walk.append(random.choice(possible_paths))
+                current_node = this_walk[-1]
+            random_walks.append(this_walk)
+        return set(sum(random_walks, start=[]))
+
+
     def __getitem__(self, idx):
 
         # Aqui agafarem el graph i farem un random walk
         data_item = self.data_items[idx]
-        random_walk_sequence = set(list(nx.generate_random_paths(
-            data_item['context'],
-            sample_size=1, path_length=self.random_walk_leng, weight=None))[0])
+        random_walk_sequence = self.random_walk(data_item['context'].to_undirected(), 2, self.path_leng)
+
         random_idx = random.randint(0, len(data_item['captions']) - 1)
-        return {'image': read_image_any_format(data_item['data_path']),
+        oldpath = data_item['data_path']
+        new_filepath = oldpath.split('.')[0] + '_224v2.png'
+        path = new_filepath if os.path.exists(new_filepath) else oldpath
+        try:
+            image = read_image_any_format(path)
+        except:
+            # There are some errors due to png conversion
+            image = read_image_any_format(oldpath)
+        return {'image': image,
                 # El walk hauria de ser llargot si volem que estigui tot el contexte
                 'graph_data': nx.subgraph(data_item['context'], random_walk_sequence),
                 'caption': data_item['captions'][random_idx], 'masked': data_item['masked_captions'][random_idx]}
+
 
 class CocoCaption(CaptioningDataset):
     def __init__(self, root, ann, to_text_nodes=[]):
@@ -229,8 +295,10 @@ class GCCaptions(CaptioningDataset):
         self.annot = list(self.annot)
 
         print(f'File processed with length, {len(self)}')
+
     def __len__(self):
         return len(self.annot)
+
     def parallel_process(self, df, df_report, split):
         root = self.root  # Assuming self.root is defined somewhere in your class
         tasks = []
@@ -243,6 +311,7 @@ class GCCaptions(CaptioningDataset):
         # Adapt the number of process to the most convenient
         with Pool(64) as pool:
             pool.map(self.process_image, tasks)
+
     @staticmethod
     def process_image(args):
         row_number, caption, path, mimetype, root, annot_shared = args
@@ -253,6 +322,7 @@ class GCCaptions(CaptioningDataset):
                 annot_shared.append((path, caption))
             except OSError:
                 pass
+
     def __getitem__(self, idx):
         image_id, caption = self.annot[idx]
         file = os.path.join(self.root, image_id)

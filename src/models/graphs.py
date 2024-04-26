@@ -90,14 +90,16 @@ class GraphContextGAT(nn.Module):
         SEQ, IMTOKENS = final_vector.shape[0], image_tokens.shape[0]
 
         mask = torch.zeros((SEQ, SEQ), device=self.device)  # Create an all-zero mask initially
-        mask[:IMTOKENS] = float('-inf')  # If I'm not mistaken it means the nodes sending messages to the images
+        #mask[:IMTOKENS] = float('-inf')  # If I'm not mistaken it means the nodes sending messages to the images
         mask[IMTOKENS:, IMTOKENS:] = float('-inf')  # In only one direction
+        mask[:IMTOKENS, :IMTOKENS] = float('-inf')  # In only one direction
         mask = mask.masked_fill(torch.eye(mask.size(-1), dtype=torch.bool, device=self.device), 0)
 
-        propagated = self.transformer_encoder(final_vector, mask=mask)[:IMTOKENS]  # Taske only contextualized image features
+        propagated = self.transformer_encoder(final_vector, mask=mask)  # Taske only contextualized image features
 
         return {
-            'encoder_features': propagated.transpose(0, 1),  # Shape: (Batch, Seq, FEATURE_SIZE)
+            'encoder_features': propagated[:IMTOKENS].transpose(0, 1),  # Shape: (Batch, Seq, FEATURE_SIZE)
+            'encoder_graph_features': propagated[IMTOKENS:].transpose(0, 1),  # Shape: (Batch, Seq, FEATURE_SIZE)
             'graph_features': node_tokens.transpose(0, 1),
             'image_features': image_tokens.transpose(0, 1),
             'memory_mask': None

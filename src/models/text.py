@@ -74,7 +74,7 @@ class TransformerTextEncoder(nn.Module):
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.vocab_cardinality = vocab_size
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, return_first=False) -> torch.Tensor:
         """
         Arguments:
             x: Tensor, shape ``[batch_size, seq_len]``
@@ -88,7 +88,9 @@ class TransformerTextEncoder(nn.Module):
         # Transformer encoding
         x = self.transformer_encoder(x)
 
-        return x[0]
+        if return_first:
+            return x[0]
+        return x[1:]
 
 
 class TransformerDecoder(nn.Module):
@@ -129,7 +131,7 @@ class TransformerDecoder(nn.Module):
         logits = torch.zeros(self.max_tokens_decode, memory.shape[1], self.vocab_size, device=memory.device)
         logits[0, :, self.start_token_id] = 1
         for t in range(1, self.max_tokens_decode):
-            tgt_emb = self.pos_emb(self.text_processor(output[:, :t].detach()).transpose(1, 0))
+            tgt_emb = self.text_processor(output[:, :t].detach())
             tgt_mask = generate_square_subsequent_mask(tgt_emb)
 
             decoder_output = self.gelu_fn(self.decoder(tgt=tgt_emb,
@@ -156,9 +158,9 @@ class TransformerDecoder(nn.Module):
 
         captions_templates = X['captions'].to(memory.device)
 
-        sequence = self.text_processor(captions_templates)
+        positional_sequence = self.text_processor(captions_templates)
 
-        positional_sequence = self.pos_emb(sequence.permute(1, 0, 2))
+        #positional_sequence = self.pos_emb(sequence.permute(1, 0, 2))
         mask = generate_square_subsequent_mask(positional_sequence)
 
         decoded = self.gelu_fn(self.decoder(
@@ -214,9 +216,10 @@ class TwoStagesTransformerDecoder(TransformerDecoder):
         With the embedding of the graph
         Then we can decode with that context to insert the named entities smoothly.
         '''
-        graph_features = stage_1_ouput['encoder_graph_features'].transpose(1,0) # (SEQ, BATCH, FEATS)
-        generated_sequence = stage_1_ouput['generated_sequence'].detach().transpose(1,0) # (SEQ, BATCH)
+        graph_features = stage_1_ouput['graph_features'].transpose(1,0) # (SEQ, BATCH, FEATS)
 
+        generated_sequence = stage_1_ouput['generated_sequence'].detach()
+        # print(generated_sequence.shape)
         # Knowing how to insert the features of the graph is a TODO
         masks = torch.zeros_like(generated_sequence, dtype=torch.int64)
         for special_idx in self.special_tokens_idxs:
@@ -226,10 +229,13 @@ class TwoStagesTransformerDecoder(TransformerDecoder):
         queries = self.caption_queries(text_features).transpose(1,0)
         values = self.graph_values(graph_features).transpose(1, 0)
         keys = self.graph_keys(graph_features).transpose(1,0)
+
+        # print(queries.shape, keys.shape)
         score = torch.bmm(queries, keys.transpose(2, 1)) / self.sqrt_dim
 
         attn = F.softmax(score, -1)
         masked_sequence_features = torch.bmm(attn, values).transpose(1,0)
+        masks = masks.transpose(1, 0)
 
         return self.pos_emb(masked_sequence_features * masks[:, :, None] + text_features * (1 - masks[:, :, None]))
 
@@ -238,14 +244,14 @@ class TwoStagesTransformerDecoder(TransformerDecoder):
         input_filled_sequence = self.contextualize_masked_sequence(output_stage_1)
 
         captions_templates = X['unmasked_captions'].to(input_filled_sequence.device)
-        sequence = self.text_processor(captions_templates)
-        positional_sequence = self.pos_emb(sequence.permute(1, 0, 2))
+        positional_sequence = self.text_processor(captions_templates)
+        # positional_sequence = self.pos_emb(sequence.permute(1, 0, 2))
         mask = generate_square_subsequent_mask(positional_sequence)
 
         decoded = self.gelu_fn(self.decoder(
             tgt=positional_sequence,
             memory=input_filled_sequence,
-            tgt_key_padding_mask=(X['unmasked_captions_padding'] == float('-inf')).to(sequence.device),
+            tgt_key_padding_mask=(X['unmasked_captions_padding'] == float('-inf')).to(positional_sequence.device),
             tgt_mask=mask,
         ))
 
@@ -271,7 +277,7 @@ class TwoStagesTransformerDecoder(TransformerDecoder):
         logits = torch.zeros(self.max_tokens_decode, memory.shape[1], self.vocab_size, device=memory.device)
         logits[0, :, self.start_token_id] = 1
         for t in range(1, self.max_tokens_decode):
-            tgt_emb = self.pos_emb(self.text_processor(output[:, :t].detach()).transpose(1, 0))
+            tgt_emb = self.text_processor(output[:, :t].detach())
             tgt_mask = generate_square_subsequent_mask(tgt_emb)
 
             decoder_output = self.gelu_fn(self.decoder(tgt=tgt_emb,

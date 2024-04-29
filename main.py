@@ -85,7 +85,7 @@ def prepare_models(args):
 
         special_tokens_idx = text_tokenizer.tokenizer.convert_tokens_to_ids(special_tokens)
 
-        decoder = TwoStagesTransformerDecoder(special_tokens_idx, graph_processor, args.gat_feature_size, text_embedding,
+        decoder = TwoStagesTransformerDecoder(special_tokens_idx, graph_processor, args.gat_feature_size, textual_model,
                                  args.decoder_emb_size, args.decoder_depth, len(text_tokenizer), args.decoder_width,
                                  args.text_context_size, text_tokenizer.eos_token_id, text_tokenizer.bos_token_id,
                                  args.freeze_backbone, args.auto_recurrent_decoder)

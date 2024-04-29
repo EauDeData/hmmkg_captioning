@@ -234,7 +234,7 @@ class MaskedCaptionningDataset(CaptioningDataset):
 
         # Aqui agafarem el graph i farem un random walk
         data_item = self.data_items[idx]
-        random_walk_sequence = self.random_walk(data_item['context'].to_undirected(), 2, self.path_leng)
+        random_walk_sequence =  self.random_walk(data_item['context'].to_undirected(), 2, self.path_leng)
 
         random_idx = random.randint(0, len(data_item['captions']) - 1)
         oldpath = data_item['data_path']

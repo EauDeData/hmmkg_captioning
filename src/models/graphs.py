@@ -65,7 +65,7 @@ class GraphContextGAT(nn.Module):
         )
 
         text_vectors = self.text_projection(self.activation(
-            self.text_processor(batch['graph']['text_nodes'][:, :max_tokens_text_vectors].to(self.device))
+            self.text_processor(batch['graph']['text_nodes'][:, :max_tokens_text_vectors].to(self.device),return_first=True)
         ))
         downsampled_text_vectors = self.downscale_node_text(self.activation(text_vectors))
 
@@ -98,8 +98,8 @@ class GraphContextGAT(nn.Module):
         propagated = self.transformer_encoder(final_vector, mask=mask)  # Taske only contextualized image features
 
         return {
-            'encoder_features': propagated[:IMTOKENS].transpose(0, 1),  # Shape: (Batch, Seq, FEATURE_SIZE)
-            'encoder_graph_features': propagated[IMTOKENS:].transpose(0, 1),  # Shape: (Batch, Seq, FEATURE_SIZE)
+            'encoder_features': propagated.transpose(0, 1),  # Shape: (Batch, Seq, FEATURE_SIZE)
+            'encoder_graph_features': propagated.transpose(0, 1),  # Shape: (Batch, Seq, FEATURE_SIZE)
             'graph_features': node_tokens.transpose(0, 1),
             'image_features': image_tokens.transpose(0, 1),
             'memory_mask': None

@@ -43,7 +43,7 @@ def cross_entropy_train_loop(dataloader, optimizer, model, loss_function = torch
 
 def cross_entropy_train_loop_for_masked_filling(
         dataloader, optimizer, model,
-        loss_function = torch.nn.CrossEntropyLoss(), logger = None, epoch=0, tokenizer=lambda x: x, warmup_epochs = 50):
+        loss_function = torch.nn.CrossEntropyLoss(), logger = None, epoch=0, tokenizer=lambda x: x, warmup_epochs = 30):
 
     model.train()
     losses = []

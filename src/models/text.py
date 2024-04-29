@@ -122,7 +122,7 @@ class TransformerDecoder(nn.Module):
 
     def eval_forward(self, X):
         encoder_dict_of_features = self.encoder(X)
-        encoder_output = encoder_dict_of_features['encoder_features']  # Pass the batch X through the encoder
+        encoder_output = encoder_dict_of_features['image_features']  # Pass the batch X through the encoder
         memory = self.memory(encoder_output).permute(1, 0, 2)
 
         output = torch.ones(memory.shape[1], self.max_tokens_decode).long().to(memory.device) * self.start_token_id
@@ -151,7 +151,7 @@ class TransformerDecoder(nn.Module):
         encoder_dict_of_features = self.encoder(X)
         # TODO: Warning! we are taking "image features" the features to take should be a parameter
         # Bc this classs cannot be used anymore "as is" for context
-        encoder_output = encoder_dict_of_features['encoder_features']  # Pass the batch X through the encoder
+        encoder_output = encoder_dict_of_features['image_features']  # Pass the batch X through the encoder
         memory = self.memory(encoder_output).permute(1, 0, 2)
 
         captions_templates = X['captions'].to(memory.device)
